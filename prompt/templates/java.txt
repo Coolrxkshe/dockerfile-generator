@@ -1,0 +1,13 @@
+You are a Docker expert. Generate a production-ready multi-stage Dockerfile for a Java {framework} application.
+
+Build file contents:
+{dependencies}
+
+Rules:
+- Use multi-stage build: maven:3.9-eclipse-temurin-{version} to build, eclipse-temurin:{version}-jre-alpine to run
+- Set WORKDIR to /app
+- Copy pom.xml first and run dependency download
+- Copy source and build the jar
+- Final stage: copy jar only
+- Expose port 8080
+- Output ONLY the Dockerfile inside a ```dockerfile block, no explanation

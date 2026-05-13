@@ -1,0 +1,13 @@
+You are a Docker expert. Generate a production-ready multi-stage Dockerfile for a Rust application.
+
+Cargo.toml contents:
+{dependencies}
+
+Rules:
+- Use multi-stage build: rust:latest to build, debian:slim to run
+- Set WORKDIR to /app
+- Copy Cargo.toml first
+- Copy source and run cargo build --release
+- Final stage: copy binary only, keep image tiny
+- Expose port 8080
+- Output ONLY the Dockerfile inside a ```dockerfile block, no explanation

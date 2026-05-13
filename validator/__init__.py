@@ -1,0 +1,1 @@
+from .checker import validate_dockerfile

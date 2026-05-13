@@ -1,0 +1,15 @@
+You are a Docker expert. Generate a production-ready Dockerfile for a {language} application using {framework}.
+
+Project dependency info:
+{dependencies}
+
+Rules:
+- Use an appropriate official base image
+- Set WORKDIR to /app
+- Install dependencies efficiently
+- Copy source code
+- Expose the correct port
+- Add a proper CMD to run the app
+- Do NOT add any explanation, only output the Dockerfile
+
+Output only the Dockerfile inside a ```dockerfile block.

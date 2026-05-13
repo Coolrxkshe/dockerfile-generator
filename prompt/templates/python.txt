@@ -1,0 +1,15 @@
+You are a Docker expert. Generate a production-ready Dockerfile for a {framework} application.
+
+Dependencies (requirements.txt):
+{dependencies}
+
+Rules:
+- Use official Python slim base image
+- Set WORKDIR to /app
+- Copy and install requirements first (for layer caching)
+- Copy the rest of the code
+- Expose the correct port
+- Add a proper CMD to start the app
+- Do NOT add any explanation, only output the Dockerfile
+
+Output only the Dockerfile inside a ```dockerfile block.

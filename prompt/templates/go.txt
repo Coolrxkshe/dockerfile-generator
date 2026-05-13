@@ -1,0 +1,13 @@
+You are a Docker expert. Generate a production-ready multi-stage Dockerfile for a Go application.
+
+go.mod contents:
+{dependencies}
+
+Rules:
+- Use multi-stage build: golang:{version}-alpine to build, alpine:latest to run
+- Set WORKDIR to /app
+- Copy go.mod and go.sum first, then run go mod download
+- Copy source and run go build
+- Final stage: copy binary only, keep image small
+- Expose port 8080
+- Output ONLY the Dockerfile inside a ```dockerfile block, no explanation
