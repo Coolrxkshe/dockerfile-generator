@@ -18,75 +18,239 @@ st.set_page_config(
     layout="centered"
 )
 
-# ── Header ────────────────────────────────────────────────
-st.title("🐳 Dockerfile Generator")
-st.caption("Powered by local LLM (Ollama) — 100% free, 100% private")
+# ── Custom CSS ────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Sora:wght@300;400;600;700&display=swap');
+
+html, body, [class*="css"] { font-family: 'Sora', sans-serif; }
+#MainMenu, footer, header { visibility: hidden; }
+.block-container { padding-top: 2rem; max-width: 780px; }
+
+.stApp {
+    background: #0a0e1a;
+    background-image:
+        radial-gradient(ellipse at 20% 10%, rgba(30,80,180,0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(0,180,140,0.1) 0%, transparent 50%);
+}
+
+[data-testid="stSidebar"] {
+    background: #0d1120 !important;
+    border-right: 1px solid rgba(255,255,255,0.06) !important;
+}
+[data-testid="stSidebar"] * { color: #c8d0e0 !important; }
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 { color: #ffffff !important; }
+
+div[data-testid="stExpander"] {
+    background: #111827;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+[data-testid="stMetric"] {
+    background: #111827;
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px;
+    padding: 1rem !important;
+}
+[data-testid="stMetricLabel"] { color: #6b7280 !important; font-size: 12px !important; }
+[data-testid="stMetricValue"] { color: #f9fafb !important; font-size: 22px !important; font-weight: 600 !important; }
+
+.stButton > button {
+    background: linear-gradient(135deg, #1d4ed8, #0891b2) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-family: 'Sora', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    padding: 0.6rem 1.5rem !important;
+    transition: all 0.2s ease !important;
+    letter-spacing: 0.02em !important;
+}
+.stButton > button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 20px rgba(29,78,216,0.4) !important;
+}
+
+[data-testid="stDownloadButton"] > button {
+    background: linear-gradient(135deg, #065f46, #0f766e) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    transition: all 0.2s ease !important;
+}
+[data-testid="stDownloadButton"] > button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 20px rgba(6,95,70,0.4) !important;
+}
+
+.stTextInput > div > div > input,
+.stSelectbox > div > div {
+    background: #111827 !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    border-radius: 8px !important;
+    color: #f9fafb !important;
+    font-family: 'Sora', sans-serif !important;
+}
+
+[data-testid="stFileUploader"] {
+    background: #111827 !important;
+    border: 2px dashed rgba(255,255,255,0.1) !important;
+    border-radius: 12px !important;
+    padding: 1rem !important;
+}
+
+.stCodeBlock, code {
+    font-family: 'JetBrains Mono', monospace !important;
+    background: #0d1120 !important;
+    border: 1px solid rgba(255,255,255,0.07) !important;
+    border-radius: 10px !important;
+    font-size: 13px !important;
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    background: #111827 !important;
+    border-radius: 10px !important;
+    padding: 4px !important;
+    gap: 4px !important;
+    border: 1px solid rgba(255,255,255,0.07) !important;
+}
+.stTabs [data-baseweb="tab"] {
+    background: transparent !important;
+    border-radius: 7px !important;
+    color: #6b7280 !important;
+    font-weight: 500 !important;
+    font-size: 13px !important;
+    padding: 6px 16px !important;
+    transition: all 0.2s ease !important;
+}
+.stTabs [aria-selected="true"] {
+    background: #1d4ed8 !important;
+    color: white !important;
+}
+
+.stSuccess { background: rgba(6,95,70,0.2) !important; border: 1px solid rgba(16,185,129,0.3) !important; border-radius: 8px !important; }
+.stError   { background: rgba(127,29,29,0.2) !important; border: 1px solid rgba(239,68,68,0.3) !important; border-radius: 8px !important; }
+.stWarning { background: rgba(120,53,15,0.2) !important; border: 1px solid rgba(245,158,11,0.3) !important; border-radius: 8px !important; }
+.stInfo    { background: rgba(30,58,138,0.2) !important; border: 1px solid rgba(59,130,246,0.3) !important; border-radius: 8px !important; }
+
+.stProgress > div > div > div {
+    background: linear-gradient(90deg, #1d4ed8, #0891b2) !important;
+    border-radius: 99px !important;
+}
+.stProgress > div > div {
+    background: rgba(255,255,255,0.06) !important;
+    border-radius: 99px !important;
+}
+
+hr { border-color: rgba(255,255,255,0.06) !important; margin: 1.5rem 0 !important; }
+p, li, label, span, .stMarkdown { color: #c8d0e0 !important; }
+h1, h2, h3 { color: #f9fafb !important; }
+.stCaption { color: #4b5563 !important; font-size: 12px !important; }
+[data-baseweb="select"] > div {
+    background: #111827 !important;
+    border-color: rgba(255,255,255,0.1) !important;
+    color: #f9fafb !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Hero Header ───────────────────────────────────────────
+st.markdown("""
+<div style="text-align:center; padding: 2rem 0 1rem;">
+    <div style="font-size:52px; margin-bottom:0.5rem;">🐳</div>
+    <h1 style="font-family:'Sora',sans-serif; font-size:2.2rem; font-weight:700;
+               background:linear-gradient(135deg,#60a5fa,#34d399);
+               -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+               margin:0; letter-spacing:-0.02em;">
+        Dockerfile Generator
+    </h1>
+    <p style="color:#4b5563; font-size:14px; margin-top:0.5rem; font-family:'Sora',sans-serif;">
+        Powered by local LLM (Ollama) &nbsp;·&nbsp; 100% free &nbsp;·&nbsp; 100% private
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
 st.divider()
 
 # ── Sidebar ───────────────────────────────────────────────
 with st.sidebar:
-    st.header("⚙️ Settings")
+    st.markdown("""
+    <p style="font-size:11px; letter-spacing:0.1em; color:#4b5563;
+              text-transform:uppercase; margin:0 0 1rem;">Configuration</p>
+    """, unsafe_allow_html=True)
 
-    # Get installed models dynamically
     installed = get_installed_models()
     installed_names = [m["name"] for m in installed]
-
-    # Always ensure fallback so dropdown is never empty
     if not installed_names:
         installed_names = ["codellama"]
 
-    model = st.selectbox("Ollama Model", installed_names, index=0)
+    model = st.selectbox("🤖 Ollama Model", installed_names, index=0)
 
-    # Show installed models with size
-    st.markdown("**Installed Models**")
+    st.markdown("**📦 Installed Models**")
     if installed:
         for m in installed:
-            st.caption(f"📦 {m['name']} — {m['size']}")
+            st.caption(f"• {m['name']} — {m['size']}")
     else:
-        st.caption("📦 codellama — detected")
-        st.warning("Could not read model list. Make sure Ollama is running.")
+        st.caption("• codellama — detected")
+        st.warning("Make sure Ollama is running.")
 
     st.divider()
-
-    # Pull new model
-    st.markdown("**Pull a new model**")
+    st.markdown("**⬇️ Pull a new model**")
     new_model = st.text_input("Model name", placeholder="e.g. mistral")
-    if st.button("⬇️ Pull Model"):
+    if st.button("⬇️ Pull Model", use_container_width=True):
         if new_model.strip():
-            with st.spinner(f"Pulling {new_model}... (may take a few minutes)"):
+            with st.spinner(f"Pulling {new_model}..."):
                 try:
                     ollama_lib.pull(new_model.strip())
-                    st.success(f"✅ {new_model} pulled successfully!")
+                    st.success(f"✅ {new_model} ready!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"❌ Failed: {e}")
+                    st.error(f"❌ {e}")
         else:
-            st.warning("Please enter a model name.")
+            st.warning("Enter a model name.")
 
     st.divider()
-    st.markdown("**Supported Languages**")
-    st.markdown("🐍 Python (Flask, FastAPI, Django)")
-    st.markdown("🟩 Node.js (Express, Next.js)")
-    st.markdown("🐹 Go")
-    st.markdown("☕ Java (Maven, Gradle)")
-    st.markdown("🦀 Rust")
+    st.markdown("**🌐 Supported Languages**")
+    langs = [
+        ("🐍", "Python", "Flask · FastAPI · Django"),
+        ("🟩", "Node.js", "Express · Next.js"),
+        ("🐹", "Go", "Go Modules"),
+        ("☕", "Java", "Maven · Gradle"),
+        ("🦀", "Rust", "Cargo"),
+    ]
+    for icon, lang, frameworks in langs:
+        st.markdown(f"""
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-size:16px">{icon}</span>
+            <div>
+                <div style="font-size:13px;font-weight:600;color:#e5e7eb;">{lang}</div>
+                <div style="font-size:11px;color:#4b5563;">{frameworks}</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 # ── Main tabs ─────────────────────────────────────────────
-main_tab1, main_tab2 = st.tabs(["🚀 Generate", "⚡ Benchmark Models"])
+main_tab1, main_tab2 = st.tabs(["🚀 Generate", "⚡ Benchmark"])
 
 # ════════════════════════════════════════════════════════
 # TAB 1 — Generate
 # ════════════════════════════════════════════════════════
 with main_tab1:
-
-    input_tab1, input_tab2 = st.tabs(["📁 Use Local Path", "📤 Upload Files"])
+    input_tab1, input_tab2 = st.tabs(["📁 Local Path", "📤 Upload Files"])
     project_path = None
 
     with input_tab1:
-        st.subheader("Point to a project folder")
+        st.markdown("<br>", unsafe_allow_html=True)
         path_input = st.text_input(
-            "Project folder path",
-            placeholder=r"C:\Users\you\my-project"
+            "path",
+            placeholder=r"C:\Users\you\my-project",
+            label_visibility="collapsed"
         )
         if path_input:
             if Path(path_input).exists():
@@ -96,12 +260,13 @@ with main_tab1:
                 st.error("❌ Folder not found. Check the path.")
 
     with input_tab2:
-        st.subheader("Upload your project files")
-        st.caption("Upload requirements.txt, package.json, go.mod etc.")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.caption("Upload requirements.txt · package.json · go.mod · pom.xml etc.")
         uploaded_files = st.file_uploader(
-            "Choose files",
+            "files",
             accept_multiple_files=True,
-            key="generate_uploader"
+            key="generate_uploader",
+            label_visibility="collapsed"
         )
         if uploaded_files:
             tmp_dir = tempfile.mkdtemp()
@@ -112,7 +277,7 @@ with main_tab1:
             project_path = tmp_dir
             st.success(f"✅ {len(uploaded_files)} file(s) uploaded")
 
-    st.divider()
+    st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         generate_btn = st.button("🚀 Generate Dockerfile", use_container_width=True)
@@ -121,29 +286,27 @@ with main_tab1:
         if not project_path:
             st.warning("⚠️ Please provide a project path or upload files first.")
         elif not model or not model.strip():
-            st.error("❌ No model selected. Please select a model from the sidebar.")
+            st.error("❌ No model selected. Pick one from the sidebar.")
         else:
-            # Step 1: Analyze
-            with st.spinner("Analyzing project..."):
+            with st.spinner("🔍 Analyzing project..."):
                 info  = detect_project(project_path)
                 files = read_project_files(project_path)
 
-            st.subheader("🔍 Project Analysis")
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("### 🔍 Project Analysis")
             c1, c2, c3 = st.columns(3)
             c1.metric("Language",  info["language"].capitalize())
             c2.metric("Framework", info["framework"].capitalize())
             c3.metric("Version",   info["version"])
 
             if info["language"] == "unknown":
-                st.error("❌ Could not detect language. Make sure you uploaded a dependency file.")
+                st.error("❌ Could not detect language. Upload a dependency file.")
                 st.stop()
 
-            # Step 2: Build prompt
-            with st.spinner("Building prompt..."):
+            with st.spinner("📝 Building prompt..."):
                 prompt = build_prompt(info, files)
 
-            # Step 3: Ask LLM
-            with st.spinner(f"Asking {model}... (10–30 seconds)"):
+            with st.spinner(f"🤖 Asking {model}... (10–30 seconds)"):
                 try:
                     response = ollama_lib.chat(
                         model=model.strip(),
@@ -152,11 +315,10 @@ with main_tab1:
                     raw = response["message"]["content"]
                 except Exception as e:
                     st.error(f"❌ Ollama error: {e}")
-                    st.info("Make sure Ollama is running and the model is installed.")
+                    st.info("Make sure Ollama is running.")
                     st.stop()
 
-            # Step 4: Extract
-            with st.spinner("Extracting Dockerfile..."):
+            with st.spinner("⚙️ Extracting Dockerfile..."):
                 dockerfile = extract_dockerfile(raw)
 
             if not dockerfile:
@@ -165,54 +327,50 @@ with main_tab1:
                     st.code(raw)
                 st.stop()
 
-            # Step 5: Validate
-            with st.spinner("Validating..."):
+            with st.spinner("🛡️ Validating..."):
                 result = validate_dockerfile(dockerfile)
 
             st.divider()
-            st.subheader("🛡️ Validation Report")
-
+            st.markdown("### 🛡️ Validation Report")
             score = result["score"]
-            score_label = "Excellent" if score >= 80 else "Needs improvement" if score >= 50 else "Poor"
+            score_label = "🟢 Excellent" if score >= 80 else "🟡 Needs improvement" if score >= 50 else "🔴 Poor"
 
             c1, c2 = st.columns([1, 3])
             with c1:
                 st.metric("Quality Score", f"{score}/100")
             with c2:
                 st.progress(score / 100)
-                st.caption(f"**{score_label}**")
+                st.caption(score_label)
 
             if result["errors"]:
-                st.error(f"❌ {len(result['errors'])} Error(s)")
                 for e in result["errors"]:
-                    st.error(f"**{e['id']}** — {e['message']}")
+                    st.error(f"❌ **{e['id']}** — {e['message']}")
             if result["warnings"]:
-                st.warning(f"⚠️ {len(result['warnings'])} Warning(s)")
                 for w in result["warnings"]:
-                    st.warning(f"**{w['id']}** — {w['message']}")
+                    st.warning(f"⚠️ **{w['id']}** — {w['message']}")
             if result["infos"]:
-                st.info(f"💡 {len(result['infos'])} Suggestion(s)")
                 for i in result["infos"]:
-                    st.info(f"**{i['id']}** — {i['message']}")
+                    st.info(f"💡 **{i['id']}** — {i['message']}")
             if result["passed"] and not result["warnings"]:
                 st.success("✅ Perfect! No issues found.")
 
-            # Step 6: Show Dockerfile
             st.divider()
-            st.subheader("✅ Generated Dockerfile")
+            st.markdown("### ✅ Generated Dockerfile")
             st.code(dockerfile, language="dockerfile")
 
-            st.download_button(
-                label="⬇️ Download Dockerfile",
-                data=dockerfile,
-                file_name="Dockerfile",
-                mime="text/plain",
-                use_container_width=True
-            )
-
-            if st.button("💾 Save to project folder", use_container_width=True):
-                save_dockerfile(dockerfile, project_path)
-                st.success("✅ Saved!")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.download_button(
+                    label="⬇️ Download Dockerfile",
+                    data=dockerfile,
+                    file_name="Dockerfile",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+            with c2:
+                if st.button("💾 Save to folder", use_container_width=True):
+                    save_dockerfile(dockerfile, project_path)
+                    st.success("✅ Saved!")
 
             with st.expander("🔎 See prompt sent to LLM"):
                 st.code(prompt)
@@ -221,27 +379,40 @@ with main_tab1:
 # TAB 2 — Benchmark
 # ════════════════════════════════════════════════════════
 with main_tab2:
-    st.subheader("⚡ Benchmark Models Side by Side")
-    st.caption("Test multiple models on the same project and compare quality scores and speed.")
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,rgba(29,78,216,0.15),rgba(8,145,178,0.15));
+                border:1px solid rgba(29,78,216,0.3); border-radius:12px;
+                padding:1rem 1.25rem; margin-bottom:1.5rem;">
+        <p style="margin:0; font-size:13px; color:#93c5fd;">
+            ⚡ <strong style="color:#bfdbfe;">Benchmark</strong> — test multiple models on the same project
+            and compare quality scores and speed side by side.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    bench_tab1, bench_tab2 = st.tabs(["📁 Use Local Path", "📤 Upload Files"])
+    bench_tab1, bench_tab2 = st.tabs(["📁 Local Path", "📤 Upload Files"])
     bench_path = None
 
     with bench_tab1:
+        st.markdown("<br>", unsafe_allow_html=True)
         bench_input = st.text_input(
-            "Project folder path",
+            "bench_path_input",
             placeholder=r"C:\Users\you\my-project",
-            key="bench_path"
+            key="bench_path",
+            label_visibility="collapsed"
         )
         if bench_input and Path(bench_input).exists():
             bench_path = bench_input
             st.success("✅ Folder found")
 
     with bench_tab2:
+        st.markdown("<br>", unsafe_allow_html=True)
         bench_files = st.file_uploader(
-            "Choose files",
+            "bench_files",
             accept_multiple_files=True,
-            key="bench_uploader"
+            key="bench_uploader",
+            label_visibility="collapsed"
         )
         if bench_files:
             tmp_dir = tempfile.mkdtemp()
@@ -252,7 +423,6 @@ with main_tab2:
             bench_path = tmp_dir
             st.success(f"✅ {len(bench_files)} file(s) uploaded")
 
-    # Model selector for benchmark
     if installed_names:
         selected_models = st.multiselect(
             "Select models to benchmark",
@@ -271,28 +441,36 @@ with main_tab2:
         if not bench_path:
             st.warning("⚠️ Please provide a project path or upload files.")
         elif not selected_models:
-            st.warning("⚠️ Please select at least one model.")
+            st.warning("⚠️ Select at least one model.")
         else:
             with st.spinner("Analyzing project..."):
                 info   = detect_project(bench_path)
                 files  = read_project_files(bench_path)
                 prompt = build_prompt(info, files)
 
-            st.info(f"Testing {len(selected_models)} model(s) on a **{info['language']}** project...")
+            st.info(f"Testing **{len(selected_models)}** model(s) on a **{info['language']}** project...")
 
             with st.spinner("Running benchmark... this may take a while"):
                 results = benchmark_models(selected_models, prompt)
 
             st.divider()
-            st.subheader("📊 Benchmark Results")
-
+            st.markdown("### 📊 Benchmark Results")
             winner = results[0]
-            st.success(f"🏆 Best model: **{winner['model']}** — Score: {winner['score']}/100")
+            st.markdown(f"""
+            <div style="background:linear-gradient(135deg,rgba(6,95,70,0.2),rgba(15,118,110,0.2));
+                        border:1px solid rgba(16,185,129,0.3); border-radius:10px;
+                        padding:1rem 1.25rem; margin-bottom:1rem;">
+                <p style="margin:0; font-size:15px; color:#6ee7b7;">
+                    🏆 <strong style="color:#a7f3d0;">Best:</strong>
+                    {winner['model']} — Score: {winner['score']}/100 in {winner['time']}s
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
 
             for i, r in enumerate(results):
                 medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"#{i+1}"
                 with st.expander(
-                    f"{medal} {r['model']} — Score: {r['score']}/100 | Time: {r['time']}s",
+                    f"{medal} {r['model']} — {r['score']}/100 | ⏱ {r['time']}s",
                     expanded=(i == 0)
                 ):
                     c1, c2, c3, c4 = st.columns(4)
@@ -301,13 +479,12 @@ with main_tab2:
                     c3.metric("Errors",   r["errors"])
                     c4.metric("Warnings", r["warnings"])
                     st.progress(r["score"] / 100)
-
                     if r["success"] and r["dockerfile"]:
                         st.code(r["dockerfile"], language="dockerfile")
                         st.download_button(
                             label=f"⬇️ Download ({r['model']})",
                             data=r["dockerfile"],
-                            file_name=f"Dockerfile.{r['model'].replace(':', '_')}",
+                            file_name=f"Dockerfile.{r['model'].replace(':','_')}",
                             mime="text/plain",
                             key=f"dl_{r['model']}"
                         )
@@ -316,4 +493,10 @@ with main_tab2:
 
 # ── Footer ────────────────────────────────────────────────
 st.divider()
-st.caption("Built with Streamlit · Runs 100% locally · No data leaves your machine")
+st.markdown("""
+<div style="text-align:center; padding:0.5rem 0;">
+    <p style="font-size:12px; color:#374151; font-family:'Sora',sans-serif;">
+        Built with Streamlit &nbsp;·&nbsp; Runs 100% locally &nbsp;·&nbsp; No data leaves your machine
+    </p>
+</div>
+""", unsafe_allow_html=True)
