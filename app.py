@@ -4,6 +4,7 @@ import tempfile
 import os
 import ollama as ollama_lib
 
+from chat import chat_with_dockerfile, get_quick_questions
 from analyzer import detect_project, read_project_files
 from prompt import build_prompt
 from llm import ask_ollama, extract_dockerfile
@@ -249,7 +250,6 @@ h3 { font-size: 1.1rem !important; color: #cce8e0 !important; border-bottom: 1px
 .stCaption { color: #2e4050 !important; font-size: 11px !important; font-family: 'IBM Plex Mono', monospace !important; letter-spacing: 0.05em !important; }
 [data-testid="stSpinner"] > div { border-top-color: #00e6b4 !important; }
 
-/* ── Checkbox styling ── */
 [data-testid="stCheckbox"] label {
     font-family: 'IBM Plex Mono', monospace !important;
     font-size: 12px !important;
@@ -258,6 +258,25 @@ h3 { font-size: 1.1rem !important; color: #cce8e0 !important; border-bottom: 1px
 }
 [data-testid="stCheckbox"] > label > div[data-testid="stMarkdownContainer"] p {
     color: #5ecfb1 !important;
+}
+
+.chat-user { display:flex; justify-content:flex-end; margin-bottom:10px; }
+.chat-user-bubble {
+    background: rgba(0,230,180,0.08);
+    border: 1px solid rgba(0,230,180,0.2);
+    border-radius: 12px 12px 2px 12px;
+    padding: 10px 14px; max-width: 80%;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px; color: #cce8e0; line-height: 1.6;
+}
+.chat-ai { display:flex; justify-content:flex-start; margin-bottom:10px; }
+.chat-ai-bubble {
+    background: #111620;
+    border: 1px solid rgba(0,230,180,0.1);
+    border-radius: 12px 12px 12px 2px;
+    padding: 10px 14px; max-width: 80%;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px; color: #8fa3b1; line-height: 1.6;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -269,31 +288,19 @@ st.markdown("""
 @keyframes flicker { 0%, 100% { opacity: 1; } 92% { opacity: 1; } 93% { opacity: 0.85; } 94% { opacity: 1; } }
 </style>
 <div style="text-align:center; padding: 2.5rem 0 1.5rem; position: relative;">
-    <div style="
-        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%);
-        width: 320px; height: 120px;
-        background: radial-gradient(ellipse, rgba(0,230,180,0.08) 0%, transparent 70%);
-        pointer-events: none;
-    "></div>
-    <div style="
-        display: inline-block;
-        font-family: 'IBM Plex Mono', monospace;
-        font-size: 11px; letter-spacing: 0.15em; color: #00e6b4;
-        border: 1px solid rgba(0,230,180,0.3); padding: 4px 14px;
-        border-radius: 2px; margin-bottom: 1.2rem; text-transform: uppercase;
-        animation: pulse-glow 3s ease-in-out infinite;
-    ">v1.0 · local · private</div>
-    <h1 style="
-        font-family: 'DM Sans', sans-serif; font-size: 2.6rem; font-weight: 600;
-        color: #ddeee8; margin: 0 0 0.4rem; letter-spacing: -0.03em;
-        animation: flicker 8s infinite;
-    ">
-        Dockerfile <span style="color: #00e6b4;">Generator</span>
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);width:320px;height:120px;
+        background:radial-gradient(ellipse,rgba(0,230,180,0.08) 0%,transparent 70%);pointer-events:none;"></div>
+    <div style="display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:11px;
+        letter-spacing:0.15em;color:#00e6b4;border:1px solid rgba(0,230,180,0.3);
+        padding:4px 14px;border-radius:2px;margin-bottom:1.2rem;text-transform:uppercase;
+        animation:pulse-glow 3s ease-in-out infinite;">v1.0 · local · private</div>
+    <h1 style="font-family:'DM Sans',sans-serif;font-size:2.6rem;font-weight:600;
+        color:#ddeee8;margin:0 0 0.4rem;letter-spacing:-0.03em;animation:flicker 8s infinite;">
+        Dockerfile <span style="color:#00e6b4;">Generator</span>
     </h1>
-    <p style="
-        color: #2e4050; font-size: 13px;
-        font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.06em; margin: 0;
-    ">powered by ollama &nbsp;·&nbsp; zero cloud &nbsp;·&nbsp; zero telemetry</p>
+    <p style="color:#2e4050;font-size:13px;font-family:'IBM Plex Mono',monospace;
+        letter-spacing:0.06em;margin:0;">
+        powered by ollama &nbsp;·&nbsp; zero cloud &nbsp;·&nbsp; zero telemetry</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -307,6 +314,11 @@ langs = [
     ("☕", "Java",    "Maven · Gradle"),
     ("🦀", "Rust",    "Cargo"),
 ]
+
+# ── Session state init (MUST be before any widget) ────────
+if "chat_history"       not in st.session_state: st.session_state.chat_history       = []
+if "current_dockerfile" not in st.session_state: st.session_state.current_dockerfile = None
+if "current_model"      not in st.session_state: st.session_state.current_model      = "codellama"
 
 # ── Sidebar ───────────────────────────────────────────────
 with st.sidebar:
@@ -325,45 +337,44 @@ with st.sidebar:
     st.markdown(f"""
 <style>
 @keyframes sb-blink {{ 0%,100% {{ opacity:1; }} 50% {{ opacity:0.25; }} }}
-.sb-brand {{ display:flex; align-items:center; gap:10px; padding: 0.1rem 0 1.2rem; border-bottom: 1px solid rgba(0,230,180,0.08); margin-bottom: 1.1rem; }}
-.sb-brand-icon {{ font-size: 22px; line-height:1; }}
-.sb-brand-title {{ font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:600; color:#cce8e0; letter-spacing:0.04em; }}
-.sb-brand-sub {{ font-family:'IBM Plex Mono',monospace; font-size:9px; color:#2e4050; letter-spacing:0.1em; text-transform:uppercase; margin-top:1px; }}
-.sb-status {{ display:flex; align-items:center; gap:7px; background: rgba(0,0,0,0.25); border: 1px solid rgba(0,230,180,0.1); border-radius:4px; padding:6px 10px; margin-bottom:1.1rem; }}
-.sb-status-dot {{ width:7px; height:7px; border-radius:50%; background:{status_color}; flex-shrink:0; animation: sb-blink 2.2s ease-in-out infinite; }}
-.sb-status-label {{ font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.1em; color:{status_color}; text-transform:uppercase; }}
-.sb-status-right {{ margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:9px; color:#2e4050; }}
-.sb-stats {{ display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-bottom:1.1rem; }}
-.sb-stat {{ background:#090d13; border:1px solid rgba(0,230,180,0.09); border-top:2px solid rgba(0,230,180,0.3); border-radius:5px; padding:8px 10px; transition: border-top-color 0.2s; }}
+.sb-brand {{ display:flex;align-items:center;gap:10px;padding:0.1rem 0 1.2rem;border-bottom:1px solid rgba(0,230,180,0.08);margin-bottom:1.1rem; }}
+.sb-brand-icon {{ font-size:22px;line-height:1; }}
+.sb-brand-title {{ font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:#cce8e0;letter-spacing:0.04em; }}
+.sb-brand-sub {{ font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2e4050;letter-spacing:0.1em;text-transform:uppercase;margin-top:1px; }}
+.sb-status {{ display:flex;align-items:center;gap:7px;background:rgba(0,0,0,0.25);border:1px solid rgba(0,230,180,0.1);border-radius:4px;padding:6px 10px;margin-bottom:1.1rem; }}
+.sb-status-dot {{ width:7px;height:7px;border-radius:50%;background:{status_color};flex-shrink:0;animation:sb-blink 2.2s ease-in-out infinite; }}
+.sb-status-label {{ font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;color:{status_color};text-transform:uppercase; }}
+.sb-status-right {{ margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2e4050; }}
+.sb-stats {{ display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:1.1rem; }}
+.sb-stat {{ background:#090d13;border:1px solid rgba(0,230,180,0.09);border-top:2px solid rgba(0,230,180,0.3);border-radius:5px;padding:8px 10px;transition:border-top-color 0.2s; }}
 .sb-stat:hover {{ border-top-color:#00e6b4; }}
-.sb-stat-val {{ font-family:'IBM Plex Mono',monospace; font-size:16px; font-weight:600; color:#00e6b4; }}
-.sb-stat-lbl {{ font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:#2e4050; margin-top:2px; }}
-.sb-sec {{ font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:0.15em; text-transform:uppercase; color:#2e4050; margin: 0 0 7px; display:flex; align-items:center; gap:6px; }}
-.sb-sec::after {{ content:''; flex:1; height:1px; background:rgba(0,230,180,0.06); }}
-.sb-active-model {{ background:rgba(0,230,180,0.05); border:1px solid rgba(0,230,180,0.2); border-left:3px solid #00e6b4; border-radius:4px; padding:8px 12px; margin-bottom:1.1rem; }}
-.sb-active-model-name {{ font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600; color:#00e6b4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
-.sb-active-model-sub {{ font-size:10px; color:#2e4050; font-family:'IBM Plex Mono',monospace; margin-top:2px; }}
-.sb-model-row {{ display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:4px; margin-bottom:4px; background:#090d13; border:1px solid rgba(0,230,180,0.07); transition: border-color 0.15s, background 0.15s; cursor:default; }}
-.sb-model-row:hover {{ border-color:rgba(0,230,180,0.25); background:rgba(0,230,180,0.04); }}
-.sb-model-row.active {{ border-color:rgba(0,230,180,0.35); background:rgba(0,230,180,0.07); }}
-.sb-model-dot {{ width:5px; height:5px; border-radius:50%; background:rgba(0,230,180,0.3); flex-shrink:0; }}
+.sb-stat-val {{ font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:#00e6b4; }}
+.sb-stat-lbl {{ font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:#2e4050;margin-top:2px; }}
+.sb-sec {{ font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.15em;text-transform:uppercase;color:#2e4050;margin:0 0 7px;display:flex;align-items:center;gap:6px; }}
+.sb-sec::after {{ content:'';flex:1;height:1px;background:rgba(0,230,180,0.06); }}
+.sb-active-model {{ background:rgba(0,230,180,0.05);border:1px solid rgba(0,230,180,0.2);border-left:3px solid #00e6b4;border-radius:4px;padding:8px 12px;margin-bottom:1.1rem; }}
+.sb-active-model-name {{ font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:#00e6b4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }}
+.sb-active-model-sub {{ font-size:10px;color:#2e4050;font-family:'IBM Plex Mono',monospace;margin-top:2px; }}
+.sb-model-row {{ display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;margin-bottom:4px;background:#090d13;border:1px solid rgba(0,230,180,0.07);transition:border-color 0.15s,background 0.15s;cursor:default; }}
+.sb-model-row:hover {{ border-color:rgba(0,230,180,0.25);background:rgba(0,230,180,0.04); }}
+.sb-model-row.active {{ border-color:rgba(0,230,180,0.35);background:rgba(0,230,180,0.07); }}
+.sb-model-dot {{ width:5px;height:5px;border-radius:50%;background:rgba(0,230,180,0.3);flex-shrink:0; }}
 .sb-model-row.active .sb-model-dot {{ background:#00e6b4; }}
-.sb-model-name {{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8fa3b1; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+.sb-model-name {{ font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8fa3b1;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }}
 .sb-model-row.active .sb-model-name {{ color:#cce8e0; }}
-.sb-model-size {{ font-family:'IBM Plex Mono',monospace; font-size:9px; color:#2e4050; }}
-.sb-model-badge {{ font-size:9px; background:rgba(0,230,180,0.12); color:#00e6b4; border:1px solid rgba(0,230,180,0.25); border-radius:2px; padding:1px 5px; font-family:'IBM Plex Mono',monospace; letter-spacing:0.05em; }}
-.sb-lang-row {{ display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:4px; margin-bottom:4px; border:1px solid rgba(0,230,180,0.06); background:#090d13; transition:border-color 0.15s, background 0.15s; cursor:default; }}
-.sb-lang-row:hover {{ border-color:rgba(0,230,180,0.2); background:rgba(0,230,180,0.03); }}
-.sb-lang-icon {{ font-size:15px; width:18px; text-align:center; flex-shrink:0; }}
-.sb-lang-name {{ font-family:'DM Sans',sans-serif; font-size:12px; font-weight:600; color:#cce8e0; min-width:48px; }}
-.sb-lang-fw {{ font-family:'IBM Plex Mono',monospace; font-size:9px; color:#2e4050; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }}
-.sb-info {{ background:#090d13; border:1px solid rgba(0,230,180,0.06); border-radius:4px; padding:10px 12px; margin-top:1rem; }}
-.sb-info-row {{ display:flex; justify-content:space-between; align-items:center; padding:3px 0; border-bottom:1px solid rgba(0,230,180,0.04); }}
+.sb-model-size {{ font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2e4050; }}
+.sb-model-badge {{ font-size:9px;background:rgba(0,230,180,0.12);color:#00e6b4;border:1px solid rgba(0,230,180,0.25);border-radius:2px;padding:1px 5px;font-family:'IBM Plex Mono',monospace;letter-spacing:0.05em; }}
+.sb-lang-row {{ display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:4px;margin-bottom:4px;border:1px solid rgba(0,230,180,0.06);background:#090d13;transition:border-color 0.15s,background 0.15s;cursor:default; }}
+.sb-lang-row:hover {{ border-color:rgba(0,230,180,0.2);background:rgba(0,230,180,0.03); }}
+.sb-lang-icon {{ font-size:15px;width:18px;text-align:center;flex-shrink:0; }}
+.sb-lang-name {{ font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;color:#cce8e0;min-width:48px; }}
+.sb-lang-fw {{ font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2e4050;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1; }}
+.sb-info {{ background:#090d13;border:1px solid rgba(0,230,180,0.06);border-radius:4px;padding:10px 12px;margin-top:1rem; }}
+.sb-info-row {{ display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid rgba(0,230,180,0.04); }}
 .sb-info-row:last-child {{ border-bottom:none; }}
-.sb-info-key {{ font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:0.08em; text-transform:uppercase; color:#2e4050; }}
-.sb-info-val {{ font-family:'IBM Plex Mono',monospace; font-size:10px; color:#5ecfb1; }}
+.sb-info-key {{ font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:#2e4050; }}
+.sb-info-val {{ font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5ecfb1; }}
 </style>
-
 <div class="sb-brand">
   <span class="sb-brand-icon">🐳</span>
   <div>
@@ -519,6 +530,11 @@ with main_tab1:
                     st.code(raw)
                 st.stop()
 
+            # ── Save to session state so chat persists across reruns ──
+            st.session_state.current_dockerfile = dockerfile
+            st.session_state.current_model      = model
+            st.session_state.chat_history       = []  # reset chat for new dockerfile
+
             with st.spinner("🛡️ Validating..."):
                 result = validate_dockerfile(dockerfile)
 
@@ -552,19 +568,101 @@ with main_tab1:
             with st.expander("🔎 See prompt sent to LLM"):
                 st.code(prompt)
 
+    # ══════════════════════════════════════════════════════
+    # AI CHAT — outside generate_btn block so it PERSISTS
+    # across button clicks and quick question interactions
+    # ══════════════════════════════════════════════════════
+    if st.session_state.current_dockerfile:
+        dockerfile_for_chat = st.session_state.current_dockerfile
+        model_for_chat      = st.session_state.current_model
+
+        st.divider()
+        st.markdown("""
+<div style="background:rgba(0,230,180,0.04);border:1px solid rgba(0,230,180,0.15);
+    border-left:3px solid #00e6b4;border-radius:4px;padding:1rem 1.25rem;margin-bottom:1rem;">
+    <p style="margin:0;font-size:13px;color:#5ecfb1;
+              font-family:'IBM Plex Mono',monospace;letter-spacing:0.02em;">
+        🤖 <strong style="color:#00e6b4;">ask the AI</strong>
+        — chat with your Dockerfile. Ask anything about it.
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+        # Quick question buttons
+        st.markdown("""
+<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
+            letter-spacing:0.15em;text-transform:uppercase;
+            color:#2e4050;margin-bottom:8px;">quick questions</div>
+""", unsafe_allow_html=True)
+
+        quick_qs = get_quick_questions()
+        cols = st.columns(2)
+        for idx, q in enumerate(quick_qs[:4]):
+            with cols[idx % 2]:
+                if st.button(q, key=f"quick_{idx}", use_container_width=True):
+                    st.session_state.chat_history.append({"role": "user", "content": q})
+                    with st.spinner("🤖 Thinking..."):
+                        answer = chat_with_dockerfile(
+                            dockerfile=dockerfile_for_chat,
+                            user_message=q,
+                            history=st.session_state.chat_history[:-1],
+                            model=model_for_chat
+                        )
+                    st.session_state.chat_history.append({"role": "assistant", "content": answer})
+                    st.rerun()
+
+        # Chat history display
+        if st.session_state.chat_history:
+            st.markdown("<br>", unsafe_allow_html=True)
+            for msg in st.session_state.chat_history:
+                if msg["role"] == "user":
+                    st.markdown(f"""
+<div class="chat-user">
+    <div class="chat-user-bubble">{msg['content']}</div>
+</div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+<div class="chat-ai">
+    <div class="chat-ai-bubble">{msg['content']}</div>
+</div>""", unsafe_allow_html=True)
+
+            if st.button("🗑️ Clear chat", key="clear_chat"):
+                st.session_state.chat_history = []
+                st.rerun()
+
+        # Chat input
+        st.markdown("<br>", unsafe_allow_html=True)
+        user_input = st.text_input(
+            "chat_input",
+            placeholder="Ask anything... e.g. How do I add a health check?",
+            label_visibility="collapsed",
+            key="chat_input_box"
+        )
+        col1, col2, col3 = st.columns([4, 1, 1])
+        with col2:
+            send_btn = st.button("Send ➤", use_container_width=True, key="send_chat")
+
+        if send_btn and user_input.strip():
+            st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
+            with st.spinner("🤖 Thinking..."):
+                answer = chat_with_dockerfile(
+                    dockerfile=dockerfile_for_chat,
+                    user_message=user_input.strip(),
+                    history=st.session_state.chat_history[:-1],
+                    model=model_for_chat
+                )
+            st.session_state.chat_history.append({"role": "assistant", "content": answer})
+            st.rerun()
+
 # ════════════════════════════════════════════════════════
 # TAB 2 — Docker Compose Generator
 # ════════════════════════════════════════════════════════
 with main_tab2:
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""
-    <div style="
-        background: rgba(0,230,180,0.04);
-        border: 1px solid rgba(0,230,180,0.15);
-        border-left: 3px solid rgba(0,230,180,0.5);
-        border-radius: 4px; padding: 1rem 1.25rem; margin-bottom: 1.5rem;
-    ">
-        <p style="margin:0; font-size:13px; color:#5ecfb1; font-family:'IBM Plex Mono',monospace; letter-spacing:0.02em;">
+    <div style="background:rgba(0,230,180,0.04);border:1px solid rgba(0,230,180,0.15);
+        border-left:3px solid rgba(0,230,180,0.5);border-radius:4px;padding:1rem 1.25rem;margin-bottom:1.5rem;">
+        <p style="margin:0;font-size:13px;color:#5ecfb1;font-family:'IBM Plex Mono',monospace;letter-spacing:0.02em;">
             🐙 <strong style="color:#00e6b4;">docker compose</strong> — generate a full
             docker-compose.yml with app, database, redis, and nginx — all wired together.
         </p>
@@ -593,30 +691,22 @@ with main_tab2:
             compose_path = tmp_dir
             st.success(f"✅ {len(comp_files)} file(s) uploaded")
 
-    # ── Service options ──
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""
-    <div style="font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:0.15em;
-                text-transform:uppercase; color:#2e4050; margin-bottom:10px;
-                display:flex; align-items:center; gap:6px;">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.15em;
+                text-transform:uppercase;color:#2e4050;margin-bottom:10px;
+                display:flex;align-items:center;gap:6px;">
         services to include
-        <span style="flex:1; height:1px; background:rgba(0,230,180,0.06); display:inline-block;"></span>
+        <span style="flex:1;height:1px;background:rgba(0,230,180,0.06);display:inline-block;"></span>
     </div>
     """, unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
-    with col1:
-        include_db    = st.checkbox("🗄️ Database",  value=True,  help="PostgreSQL or MongoDB")
-    with col2:
-        include_redis = st.checkbox("⚡ Redis",     value=False, help="Cache / message queue")
-    with col3:
-        include_nginx = st.checkbox("🌐 Nginx",     value=False, help="Reverse proxy / SSL")
+    with col1: include_db    = st.checkbox("🗄️ Database", value=True,  help="PostgreSQL or MongoDB")
+    with col2: include_redis = st.checkbox("⚡ Redis",    value=False, help="Cache / message queue")
+    with col3: include_nginx = st.checkbox("🌐 Nginx",    value=False, help="Reverse proxy / SSL")
 
-    options = {
-        "include_db":    include_db,
-        "include_redis": include_redis,
-        "include_nginx": include_nginx,
-    }
+    options = {"include_db": include_db, "include_redis": include_redis, "include_nginx": include_nginx}
 
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -638,7 +728,7 @@ with main_tab2:
             c3.metric("Version",   info["version"])
 
             if info["language"] == "unknown":
-                st.error("❌ Could not detect language. Upload a dependency file.")
+                st.error("❌ Could not detect language.")
                 st.stop()
 
             with st.spinner("🐙 Generating docker-compose.yml..."):
@@ -647,46 +737,28 @@ with main_tab2:
             st.divider()
             st.markdown("### ✅ Generated docker-compose.yml")
 
-            # services badge row
-            badges = []
-            badges.append('<span style="background:rgba(0,230,180,0.1);border:1px solid rgba(0,230,180,0.3);border-radius:3px;padding:2px 8px;font-size:11px;color:#00e6b4;font-family:\'IBM Plex Mono\',monospace;">🚀 app</span>')
-            if include_db:
-                badges.append('<span style="background:rgba(60,140,255,0.1);border:1px solid rgba(60,140,255,0.3);border-radius:3px;padding:2px 8px;font-size:11px;color:#3c8cff;font-family:\'IBM Plex Mono\',monospace;">🗄️ database</span>')
-            if include_redis:
-                badges.append('<span style="background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:3px;padding:2px 8px;font-size:11px;color:#ff5050;font-family:\'IBM Plex Mono\',monospace;">⚡ redis</span>')
-            if include_nginx:
-                badges.append('<span style="background:rgba(255,185,0,0.1);border:1px solid rgba(255,185,0,0.3);border-radius:3px;padding:2px 8px;font-size:11px;color:#ffb900;font-family:\'IBM Plex Mono\',monospace;">🌐 nginx</span>')
-
-            st.markdown(
-                '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem;">' +
-                " ".join(badges) + "</div>",
-                unsafe_allow_html=True
-            )
+            badges = ['<span style="background:rgba(0,230,180,0.1);border:1px solid rgba(0,230,180,0.3);border-radius:3px;padding:2px 8px;font-size:11px;color:#00e6b4;font-family:\'IBM Plex Mono\',monospace;">🚀 app</span>']
+            if include_db:    badges.append('<span style="background:rgba(60,140,255,0.1);border:1px solid rgba(60,140,255,0.3);border-radius:3px;padding:2px 8px;font-size:11px;color:#3c8cff;font-family:\'IBM Plex Mono\',monospace;">🗄️ database</span>')
+            if include_redis: badges.append('<span style="background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:3px;padding:2px 8px;font-size:11px;color:#ff5050;font-family:\'IBM Plex Mono\',monospace;">⚡ redis</span>')
+            if include_nginx: badges.append('<span style="background:rgba(255,185,0,0.1);border:1px solid rgba(255,185,0,0.3);border-radius:3px;padding:2px 8px;font-size:11px;color:#ffb900;font-family:\'IBM Plex Mono\',monospace;">🌐 nginx</span>')
+            st.markdown('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem;">' + " ".join(badges) + "</div>", unsafe_allow_html=True)
 
             st.code(compose_content, language="yaml")
-
             c1, c2 = st.columns(2)
             with c1:
-                st.download_button(
-                    label="⬇️ Download docker-compose.yml",
-                    data=compose_content,
-                    file_name="docker-compose.yml",
-                    mime="text/plain",
-                    use_container_width=True
-                )
+                st.download_button("⬇️ Download docker-compose.yml", data=compose_content, file_name="docker-compose.yml", mime="text/plain", use_container_width=True)
             with c2:
                 if st.button("💾 Save to folder", key="save_compose", use_container_width=True):
                     save_compose(compose_content, compose_path)
-                    st.success("✅ Saved as docker-compose.yml!")
+                    st.success("✅ Saved!")
 
-            # what each service does
             with st.expander("📖 What does each service do?"):
                 explanations = {
-                    "app":   ("🚀", "app",   "Your main application — built from your Dockerfile in the current folder."),
-                    "db":    ("🗄️", "db",    "PostgreSQL database — stores your app's persistent data with a named volume."),
-                    "mongo": ("🗄️", "mongo", "MongoDB database — stores your app's data as documents."),
-                    "redis": ("⚡", "redis", "Redis — ultra-fast in-memory cache for sessions, queues, and rate-limiting."),
-                    "nginx": ("🌐", "nginx", "Nginx reverse proxy — handles incoming HTTP traffic and routes it to your app."),
+                    "app":   ("🚀", "app",   "Your main application — built from your Dockerfile."),
+                    "db":    ("🗄️", "db",    "PostgreSQL database — stores your app's persistent data."),
+                    "mongo": ("🗄️", "mongo", "MongoDB — stores your app's data as documents."),
+                    "redis": ("⚡", "redis", "Redis — fast in-memory cache for sessions and queues."),
+                    "nginx": ("🌐", "nginx", "Nginx — reverse proxy that handles incoming web traffic."),
                 }
                 for key, (icon, name, desc) in explanations.items():
                     if key in compose_content:
@@ -699,23 +771,14 @@ with main_tab2:
   </div>
 </div>""", unsafe_allow_html=True)
 
-            # how to run it
             with st.expander("▶️ How to run it"):
                 st.markdown("""
 <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#5ecfb1;line-height:2;">
-  <div style="color:#2e4050;margin-bottom:6px;"># start all services</div>
-  <div style="color:#00e6b4;">docker compose up</div>
-  <br>
-  <div style="color:#2e4050;margin-bottom:6px;"># start in background</div>
-  <div style="color:#00e6b4;">docker compose up -d</div>
-  <br>
-  <div style="color:#2e4050;margin-bottom:6px;"># stop all services</div>
-  <div style="color:#00e6b4;">docker compose down</div>
-  <br>
-  <div style="color:#2e4050;margin-bottom:6px;"># view logs</div>
-  <div style="color:#00e6b4;">docker compose logs -f</div>
-</div>
-""", unsafe_allow_html=True)
+  <div style="color:#2e4050;"># start all services</div><div style="color:#00e6b4;">docker compose up</div><br>
+  <div style="color:#2e4050;"># start in background</div><div style="color:#00e6b4;">docker compose up -d</div><br>
+  <div style="color:#2e4050;"># stop all services</div><div style="color:#00e6b4;">docker compose down</div><br>
+  <div style="color:#2e4050;"># view logs</div><div style="color:#00e6b4;">docker compose logs -f</div>
+</div>""", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════
 # TAB 3 — Benchmark
@@ -723,13 +786,9 @@ with main_tab2:
 with main_tab3:
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""
-    <div style="
-        background: rgba(0,230,180,0.04);
-        border: 1px solid rgba(0,230,180,0.15);
-        border-left: 3px solid rgba(0,230,180,0.5);
-        border-radius: 4px; padding: 1rem 1.25rem; margin-bottom: 1.5rem;
-    ">
-        <p style="margin:0; font-size:13px; color:#5ecfb1; font-family:'IBM Plex Mono',monospace; letter-spacing:0.02em;">
+    <div style="background:rgba(0,230,180,0.04);border:1px solid rgba(0,230,180,0.15);
+        border-left:3px solid rgba(0,230,180,0.5);border-radius:4px;padding:1rem 1.25rem;margin-bottom:1.5rem;">
+        <p style="margin:0;font-size:13px;color:#5ecfb1;font-family:'IBM Plex Mono',monospace;letter-spacing:0.02em;">
             ⚡ <strong style="color:#00e6b4;">benchmark</strong> — test multiple models on the same project
             and compare quality scores and speed side by side.
         </p>
@@ -788,13 +847,13 @@ with main_tab3:
             st.markdown("### 📊 Benchmark Results")
             winner = results[0]
             st.markdown(f"""
-            <div style="background:rgba(0,230,180,0.05);border:1px solid rgba(0,230,180,0.2);
-                        border-left:3px solid #00e6b4;border-radius:4px;padding:1rem 1.25rem;margin-bottom:1rem;">
-                <p style="margin:0;font-size:14px;color:#00e6b4;font-family:'IBM Plex Mono',monospace;letter-spacing:0.03em;">
-                    🏆 <strong>best:</strong> {winner['model']} — score: {winner['score']}/100 in {winner['time']}s
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
+<div style="background:rgba(0,230,180,0.05);border:1px solid rgba(0,230,180,0.2);
+    border-left:3px solid #00e6b4;border-radius:4px;padding:1rem 1.25rem;margin-bottom:1rem;">
+    <p style="margin:0;font-size:14px;color:#00e6b4;font-family:'IBM Plex Mono',monospace;letter-spacing:0.03em;">
+        🏆 <strong>best:</strong> {winner['model']} — score: {winner['score']}/100 in {winner['time']}s
+    </p>
+</div>
+""", unsafe_allow_html=True)
 
             for i, r in enumerate(results):
                 medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"#{i+1}"
@@ -820,8 +879,8 @@ with main_tab3:
 # ── Footer ────────────────────────────────────────────────
 st.divider()
 st.markdown("""
-<div style="text-align:center; padding:0.75rem 0 0.25rem;">
-    <p style="font-size:11px; color:#1a2530; font-family:'IBM Plex Mono',monospace; letter-spacing:0.08em; text-transform:uppercase;">
+<div style="text-align:center;padding:0.75rem 0 0.25rem;">
+    <p style="font-size:11px;color:#1a2530;font-family:'IBM Plex Mono',monospace;letter-spacing:0.08em;text-transform:uppercase;">
         built with streamlit &nbsp;·&nbsp; runs 100% locally &nbsp;·&nbsp; no data leaves your machine
     </p>
 </div>
