@@ -12,6 +12,7 @@ from output import save_dockerfile
 from validator import validate_dockerfile
 from models import get_installed_models, is_model_available, benchmark_models
 from compose import generate_compose, save_compose
+from optimizer import optimize_dockerfile, diff_dockerfiles
 
 # ── Page config ───────────────────────────────────────────
 st.set_page_config(
@@ -129,7 +130,8 @@ div[data-testid="stExpander"] summary {
     box-shadow: 0 0 14px rgba(94,207,177,0.15) !important;
 }
 
-.stTextInput > div > div > input {
+.stTextInput > div > div > input,
+.stTextArea > div > div > textarea {
     background: #0d1117 !important;
     border: 1px solid rgba(0,230,180,0.15) !important;
     border-radius: 4px !important;
@@ -139,11 +141,14 @@ div[data-testid="stExpander"] summary {
     caret-color: #00e6b4;
     transition: border-color 0.2s !important;
 }
-.stTextInput > div > div > input:focus {
+.stTextInput > div > div > input:focus,
+.stTextArea > div > div > textarea:focus {
     border-color: rgba(0,230,180,0.5) !important;
     box-shadow: 0 0 0 3px rgba(0,230,180,0.08) !important;
 }
-.stTextInput > div > div > input::placeholder { color: #2e4050 !important; }
+.stTextInput > div > div > input::placeholder,
+.stTextArea > div > div > textarea::placeholder { color: #2e4050 !important; }
+
 .stSelectbox > div > div,
 [data-baseweb="select"] > div {
     background: #0d1117 !important;
@@ -278,6 +283,37 @@ h3 { font-size: 1.1rem !important; color: #cce8e0 !important; border-bottom: 1px
     font-family: 'DM Sans', sans-serif;
     font-size: 13px; color: #8fa3b1; line-height: 1.6;
 }
+
+/* ── Diff view ── */
+.diff-added {
+    background: rgba(0,230,180,0.08);
+    border-left: 3px solid #00e6b4;
+    padding: 3px 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: #00e6b4;
+    margin: 1px 0;
+    border-radius: 0 3px 3px 0;
+}
+.diff-removed {
+    background: rgba(255,80,80,0.08);
+    border-left: 3px solid #ff5050;
+    padding: 3px 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: #ff5050;
+    margin: 1px 0;
+    border-radius: 0 3px 3px 0;
+    text-decoration: line-through;
+    opacity: 0.7;
+}
+.diff-kept {
+    padding: 3px 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: #4a6070;
+    margin: 1px 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -293,7 +329,7 @@ st.markdown("""
     <div style="display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:11px;
         letter-spacing:0.15em;color:#00e6b4;border:1px solid rgba(0,230,180,0.3);
         padding:4px 14px;border-radius:2px;margin-bottom:1.2rem;text-transform:uppercase;
-        animation:pulse-glow 3s ease-in-out infinite;">v1.0 · local · private</div>
+        animation:pulse-glow 3s ease-in-out infinite;">v2.0 · local · private</div>
     <h1 style="font-family:'DM Sans',sans-serif;font-size:2.6rem;font-weight:600;
         color:#ddeee8;margin:0 0 0.4rem;letter-spacing:-0.03em;animation:flicker 8s infinite;">
         Dockerfile <span style="color:#00e6b4;">Generator</span>
@@ -315,7 +351,7 @@ langs = [
     ("🦀", "Rust",    "Cargo"),
 ]
 
-# ── Session state init (MUST be before any widget) ────────
+# ── Session state init ────────────────────────────────────
 if "chat_history"       not in st.session_state: st.session_state.chat_history       = []
 if "current_dockerfile" not in st.session_state: st.session_state.current_dockerfile = None
 if "current_model"      not in st.session_state: st.session_state.current_model      = "codellama"
@@ -379,7 +415,7 @@ with st.sidebar:
   <span class="sb-brand-icon">🐳</span>
   <div>
     <div class="sb-brand-title">Dockerfile Gen</div>
-    <div class="sb-brand-sub">v1.0 · powered by ollama</div>
+    <div class="sb-brand-sub">v2.0 · powered by ollama</div>
   </div>
 </div>
 <div class="sb-status">
@@ -452,7 +488,9 @@ with st.sidebar:
 """, unsafe_allow_html=True)
 
 # ── Main tabs ─────────────────────────────────────────────
-main_tab1, main_tab2, main_tab3 = st.tabs(["🚀 Generate", "🐙 Compose", "⚡ Benchmark"])
+main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
+    "🚀 Generate", "🔧 Optimize", "🐙 Compose", "⚡ Benchmark"
+])
 
 # ════════════════════════════════════════════════════════
 # TAB 1 — Generate Dockerfile
@@ -530,10 +568,9 @@ with main_tab1:
                     st.code(raw)
                 st.stop()
 
-            # ── Save to session state so chat persists across reruns ──
             st.session_state.current_dockerfile = dockerfile
             st.session_state.current_model      = model
-            st.session_state.chat_history       = []  # reset chat for new dockerfile
+            st.session_state.chat_history       = []
 
             with st.spinner("🛡️ Validating..."):
                 result = validate_dockerfile(dockerfile)
@@ -568,10 +605,7 @@ with main_tab1:
             with st.expander("🔎 See prompt sent to LLM"):
                 st.code(prompt)
 
-    # ══════════════════════════════════════════════════════
-    # AI CHAT — outside generate_btn block so it PERSISTS
-    # across button clicks and quick question interactions
-    # ══════════════════════════════════════════════════════
+    # ── AI CHAT — persists outside generate block ──
     if st.session_state.current_dockerfile:
         dockerfile_for_chat = st.session_state.current_dockerfile
         model_for_chat      = st.session_state.current_model
@@ -588,12 +622,9 @@ with main_tab1:
 </div>
 """, unsafe_allow_html=True)
 
-        # Quick question buttons
-        st.markdown("""
-<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
-            letter-spacing:0.15em;text-transform:uppercase;
-            color:#2e4050;margin-bottom:8px;">quick questions</div>
-""", unsafe_allow_html=True)
+        st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
+            letter-spacing:0.15em;text-transform:uppercase;color:#2e4050;margin-bottom:8px;">
+            quick questions</div>""", unsafe_allow_html=True)
 
         quick_qs = get_quick_questions()
         cols = st.columns(2)
@@ -611,33 +642,19 @@ with main_tab1:
                     st.session_state.chat_history.append({"role": "assistant", "content": answer})
                     st.rerun()
 
-        # Chat history display
         if st.session_state.chat_history:
             st.markdown("<br>", unsafe_allow_html=True)
             for msg in st.session_state.chat_history:
                 if msg["role"] == "user":
-                    st.markdown(f"""
-<div class="chat-user">
-    <div class="chat-user-bubble">{msg['content']}</div>
-</div>""", unsafe_allow_html=True)
+                    st.markdown(f'<div class="chat-user"><div class="chat-user-bubble">{msg["content"]}</div></div>', unsafe_allow_html=True)
                 else:
-                    st.markdown(f"""
-<div class="chat-ai">
-    <div class="chat-ai-bubble">{msg['content']}</div>
-</div>""", unsafe_allow_html=True)
-
+                    st.markdown(f'<div class="chat-ai"><div class="chat-ai-bubble">{msg["content"]}</div></div>', unsafe_allow_html=True)
             if st.button("🗑️ Clear chat", key="clear_chat"):
                 st.session_state.chat_history = []
                 st.rerun()
 
-        # Chat input
         st.markdown("<br>", unsafe_allow_html=True)
-        user_input = st.text_input(
-            "chat_input",
-            placeholder="Ask anything... e.g. How do I add a health check?",
-            label_visibility="collapsed",
-            key="chat_input_box"
-        )
+        user_input = st.text_input("chat_input", placeholder="Ask anything... e.g. How do I add a health check?", label_visibility="collapsed", key="chat_input_box")
         col1, col2, col3 = st.columns([4, 1, 1])
         with col2:
             send_btn = st.button("Send ➤", use_container_width=True, key="send_chat")
@@ -655,9 +672,169 @@ with main_tab1:
             st.rerun()
 
 # ════════════════════════════════════════════════════════
-# TAB 2 — Docker Compose Generator
+# TAB 2 — Dockerfile Optimizer (NEW — Week 2)
 # ════════════════════════════════════════════════════════
 with main_tab2:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style="background:rgba(0,230,180,0.04);border:1px solid rgba(0,230,180,0.15);
+        border-left:3px solid #00e6b4;border-radius:4px;padding:1rem 1.25rem;margin-bottom:1.5rem;">
+        <p style="margin:0;font-size:13px;color:#5ecfb1;font-family:'IBM Plex Mono',monospace;letter-spacing:0.02em;">
+            🔧 <strong style="color:#00e6b4;">optimizer</strong> — paste any existing Dockerfile.
+            AI rewrites it to be smaller, faster, and more secure. Shows before vs after.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
+        letter-spacing:0.15em;text-transform:uppercase;color:#2e4050;margin-bottom:8px;">
+        paste your dockerfile</div>""", unsafe_allow_html=True)
+
+    original_dockerfile = st.text_area(
+        "dockerfile_input",
+        placeholder="""FROM python:3.9
+RUN apt-get install vim
+RUN pip install flask
+COPY . .
+CMD python app.py""",
+        height=220,
+        label_visibility="collapsed",
+        key="optimizer_input"
+    )
+
+    # Optimization goal checkboxes
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
+        letter-spacing:0.15em;text-transform:uppercase;color:#2e4050;margin-bottom:10px;
+        display:flex;align-items:center;gap:6px;">
+        optimization goals
+        <span style="flex:1;height:1px;background:rgba(0,230,180,0.06);display:inline-block;"></span>
+    </div>""", unsafe_allow_html=True)
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: goal_size    = st.checkbox("📦 Smaller size",   value=True)
+    with c2: goal_secure  = st.checkbox("🔒 More secure",    value=True)
+    with c3: goal_cache   = st.checkbox("⚡ Better caching", value=True)
+    with c4: goal_layers  = st.checkbox("📋 Fewer layers",   value=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        optimize_btn = st.button("🔧 Optimize Dockerfile", use_container_width=True)
+
+    if optimize_btn:
+        if not original_dockerfile.strip():
+            st.warning("⚠️ Please paste a Dockerfile first.")
+        elif "FROM" not in original_dockerfile:
+            st.error("❌ This doesn't look like a valid Dockerfile. It must contain a FROM instruction.")
+        else:
+            with st.spinner(f"🤖 Asking {model} to optimize... (10–30 seconds)"):
+                try:
+                    result = optimize_dockerfile(
+                        dockerfile=original_dockerfile.strip(),
+                        model=model.strip()
+                    )
+                except Exception as e:
+                    st.error(f"❌ Ollama error: {e}")
+                    st.stop()
+
+            if not result["success"]:
+                st.error("❌ Could not generate an optimized Dockerfile.")
+                with st.expander("See raw response"):
+                    st.code(result.get("raw", ""))
+                st.stop()
+
+            optimized = result["optimized"]
+            changes   = result["changes"]
+            savings   = result["savings"]
+
+            # ── Savings banner ──
+            if savings:
+                st.markdown(f"""
+<div style="background:rgba(0,230,180,0.06);border:1px solid rgba(0,230,180,0.25);
+    border-radius:8px;padding:1rem 1.25rem;margin:1rem 0;text-align:center;">
+    <p style="margin:0;font-size:15px;color:#00e6b4;font-family:'IBM Plex Mono',monospace;font-weight:600;">
+        💰 {savings}
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+            # ── Before vs After ──
+            st.divider()
+            st.markdown("### 📊 Before vs After")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;
+                    letter-spacing:0.1em;text-transform:uppercase;color:#ff5050;margin-bottom:6px;">
+                    ❌ before (original)</div>""", unsafe_allow_html=True)
+                st.code(original_dockerfile.strip(), language="dockerfile")
+            with col2:
+                st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;
+                    letter-spacing:0.1em;text-transform:uppercase;color:#00e6b4;margin-bottom:6px;">
+                    ✅ after (optimized)</div>""", unsafe_allow_html=True)
+                st.code(optimized, language="dockerfile")
+
+            # ── What changed ──
+            if changes:
+                st.divider()
+                st.markdown("### 🔍 What Changed & Why")
+                for i, change in enumerate(changes):
+                    st.markdown(f"""
+<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 12px;
+    background:#111620;border:1px solid rgba(0,230,180,0.08);
+    border-left:3px solid #00e6b4;border-radius:0 6px 6px 0;margin-bottom:6px;">
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;
+        color:#00e6b4;flex-shrink:0;margin-top:2px;">#{i+1}</span>
+    <span style="font-family:'DM Sans',sans-serif;font-size:13px;color:#8fa3b1;">{change}</span>
+</div>""", unsafe_allow_html=True)
+
+            # ── Diff view ──
+            st.divider()
+            with st.expander("🔎 Line-by-line diff"):
+                diff = diff_dockerfiles(original_dockerfile.strip(), optimized)
+                diff_html = ""
+                for item in diff:
+                    if item["type"] == "added":
+                        diff_html += f'<div class="diff-added">+ {item["line"]}</div>'
+                    elif item["type"] == "removed":
+                        diff_html += f'<div class="diff-removed">- {item["line"]}</div>'
+                    else:
+                        diff_html += f'<div class="diff-kept">  {item["line"]}</div>'
+                st.markdown(f'<div style="background:#060910;border-radius:6px;padding:12px;">{diff_html}</div>', unsafe_allow_html=True)
+
+            # ── Validation of optimized ──
+            st.divider()
+            st.markdown("### 🛡️ Optimized Dockerfile Quality")
+            val = validate_dockerfile(optimized)
+            score = val["score"]
+            score_label = "🟢 Excellent" if score >= 80 else "🟡 Needs improvement" if score >= 50 else "🔴 Poor"
+            c1, c2 = st.columns([1, 3])
+            with c1:
+                st.metric("Quality Score", f"{score}/100")
+            with c2:
+                st.progress(score / 100)
+                st.caption(score_label)
+
+            for e in val.get("errors",   []): st.error(  f"❌ **{e['id']}** — {e['message']}")
+            for w in val.get("warnings", []): st.warning(f"⚠️ **{w['id']}** — {w['message']}")
+            for i in val.get("infos",    []): st.info(   f"💡 **{i['id']}** — {i['message']}")
+            if val["passed"] and not val["warnings"]:
+                st.success("✅ Optimized Dockerfile is production ready!")
+
+            # ── Download ──
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.download_button(
+                label="⬇️ Download Optimized Dockerfile",
+                data=optimized,
+                file_name="Dockerfile.optimized",
+                mime="text/plain",
+                use_container_width=True
+            )
+
+# ════════════════════════════════════════════════════════
+# TAB 3 — Docker Compose Generator
+# ════════════════════════════════════════════════════════
+with main_tab3:
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""
     <div style="background:rgba(0,230,180,0.04);border:1px solid rgba(0,230,180,0.15);
@@ -692,14 +869,11 @@ with main_tab2:
             st.success(f"✅ {len(comp_files)} file(s) uploaded")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("""
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.15em;
-                text-transform:uppercase;color:#2e4050;margin-bottom:10px;
-                display:flex;align-items:center;gap:6px;">
+    st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.15em;
+        text-transform:uppercase;color:#2e4050;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
         services to include
         <span style="flex:1;height:1px;background:rgba(0,230,180,0.06);display:inline-block;"></span>
-    </div>
-    """, unsafe_allow_html=True)
+    </div>""", unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
     with col1: include_db    = st.checkbox("🗄️ Database", value=True,  help="PostgreSQL or MongoDB")
@@ -781,9 +955,9 @@ with main_tab2:
 </div>""", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════
-# TAB 3 — Benchmark
+# TAB 4 — Benchmark
 # ════════════════════════════════════════════════════════
-with main_tab3:
+with main_tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""
     <div style="background:rgba(0,230,180,0.04);border:1px solid rgba(0,230,180,0.15);
