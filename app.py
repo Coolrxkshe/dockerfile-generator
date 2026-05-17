@@ -284,35 +284,27 @@ h3 { font-size: 1.1rem !important; color: #cce8e0 !important; border-bottom: 1px
     font-size: 13px; color: #8fa3b1; line-height: 1.6;
 }
 
-/* ── Diff view ── */
 .diff-added {
     background: rgba(0,230,180,0.08);
     border-left: 3px solid #00e6b4;
     padding: 3px 10px;
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px;
-    color: #00e6b4;
-    margin: 1px 0;
-    border-radius: 0 3px 3px 0;
+    font-size: 12px; color: #00e6b4;
+    margin: 1px 0; border-radius: 0 3px 3px 0;
 }
 .diff-removed {
     background: rgba(255,80,80,0.08);
     border-left: 3px solid #ff5050;
     padding: 3px 10px;
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px;
-    color: #ff5050;
-    margin: 1px 0;
-    border-radius: 0 3px 3px 0;
-    text-decoration: line-through;
-    opacity: 0.7;
+    font-size: 12px; color: #ff5050;
+    margin: 1px 0; border-radius: 0 3px 3px 0;
+    text-decoration: line-through; opacity: 0.7;
 }
 .diff-kept {
     padding: 3px 10px;
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px;
-    color: #4a6070;
-    margin: 1px 0;
+    font-size: 12px; color: #4a6070; margin: 1px 0;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -355,6 +347,8 @@ langs = [
 if "chat_history"       not in st.session_state: st.session_state.chat_history       = []
 if "current_dockerfile" not in st.session_state: st.session_state.current_dockerfile = None
 if "current_model"      not in st.session_state: st.session_state.current_model      = "codellama"
+if "chat_input_value"   not in st.session_state: st.session_state.chat_input_value   = ""
+if "input_counter"      not in st.session_state: st.session_state.input_counter      = 0
 
 # ── Sidebar ───────────────────────────────────────────────
 with st.sidebar:
@@ -571,6 +565,7 @@ with main_tab1:
             st.session_state.current_dockerfile = dockerfile
             st.session_state.current_model      = model
             st.session_state.chat_history       = []
+            st.session_state.chat_input_value   = ""
 
             with st.spinner("🛡️ Validating..."):
                 result = validate_dockerfile(dockerfile)
@@ -605,7 +600,7 @@ with main_tab1:
             with st.expander("🔎 See prompt sent to LLM"):
                 st.code(prompt)
 
-    # ── AI CHAT — persists outside generate block ──
+    # ── AI CHAT — always visible once dockerfile is generated ──
     if st.session_state.current_dockerfile:
         dockerfile_for_chat = st.session_state.current_dockerfile
         model_for_chat      = st.session_state.current_model
@@ -622,6 +617,7 @@ with main_tab1:
 </div>
 """, unsafe_allow_html=True)
 
+        # Quick questions
         st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
             letter-spacing:0.15em;text-transform:uppercase;color:#2e4050;margin-bottom:8px;">
             quick questions</div>""", unsafe_allow_html=True)
@@ -642,6 +638,7 @@ with main_tab1:
                     st.session_state.chat_history.append({"role": "assistant", "content": answer})
                     st.rerun()
 
+        # Chat history
         if st.session_state.chat_history:
             st.markdown("<br>", unsafe_allow_html=True)
             for msg in st.session_state.chat_history:
@@ -649,22 +646,44 @@ with main_tab1:
                     st.markdown(f'<div class="chat-user"><div class="chat-user-bubble">{msg["content"]}</div></div>', unsafe_allow_html=True)
                 else:
                     st.markdown(f'<div class="chat-ai"><div class="chat-ai-bubble">{msg["content"]}</div></div>', unsafe_allow_html=True)
+
             if st.button("🗑️ Clear chat", key="clear_chat"):
                 st.session_state.chat_history = []
                 st.rerun()
 
+        # ── Chat input with auto-clear ──
         st.markdown("<br>", unsafe_allow_html=True)
-        user_input = st.text_input("chat_input", placeholder="Ask anything... e.g. How do I add a health check?", label_visibility="collapsed", key="chat_input_box")
-        col1, col2, col3 = st.columns([4, 1, 1])
+
+        # Use counter in key to force Streamlit to re-render = clears the box
+        input_key = f"chat_input_{st.session_state.input_counter}"
+        user_input = st.text_input(
+            "chat_input",
+            placeholder="Ask anything... e.g. How do I add a health check?",
+            label_visibility="collapsed",
+            key=input_key
+        )
+
+        col1, col2, col3 = st.columns([3, 1, 1])
         with col2:
             send_btn = st.button("Send ➤", use_container_width=True, key="send_chat")
+        with col3:
+            clear_input_btn = st.button("✕ Clear", use_container_width=True, key="clear_input")
 
+        # Clear input button
+        if clear_input_btn:
+            st.session_state.input_counter += 1
+            st.rerun()
+
+        # Send message
         if send_btn and user_input.strip():
-            st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
+            msg = user_input.strip()
+            st.session_state.chat_history.append({"role": "user", "content": msg})
+            # Increment counter to clear input box on rerun
+            st.session_state.input_counter += 1
             with st.spinner("🤖 Thinking..."):
                 answer = chat_with_dockerfile(
                     dockerfile=dockerfile_for_chat,
-                    user_message=user_input.strip(),
+                    user_message=msg,
                     history=st.session_state.chat_history[:-1],
                     model=model_for_chat
                 )
@@ -672,7 +691,7 @@ with main_tab1:
             st.rerun()
 
 # ════════════════════════════════════════════════════════
-# TAB 2 — Dockerfile Optimizer (NEW — Week 2)
+# TAB 2 — Dockerfile Optimizer
 # ════════════════════════════════════════════════════════
 with main_tab2:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -702,7 +721,6 @@ CMD python app.py""",
         key="optimizer_input"
     )
 
-    # Optimization goal checkboxes
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
         letter-spacing:0.15em;text-transform:uppercase;color:#2e4050;margin-bottom:10px;
@@ -712,10 +730,10 @@ CMD python app.py""",
     </div>""", unsafe_allow_html=True)
 
     c1, c2, c3, c4 = st.columns(4)
-    with c1: goal_size    = st.checkbox("📦 Smaller size",   value=True)
-    with c2: goal_secure  = st.checkbox("🔒 More secure",    value=True)
-    with c3: goal_cache   = st.checkbox("⚡ Better caching", value=True)
-    with c4: goal_layers  = st.checkbox("📋 Fewer layers",   value=True)
+    with c1: goal_size   = st.checkbox("📦 Smaller size",   value=True)
+    with c2: goal_secure = st.checkbox("🔒 More secure",    value=True)
+    with c3: goal_cache  = st.checkbox("⚡ Better caching", value=True)
+    with c4: goal_layers = st.checkbox("📋 Fewer layers",   value=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -748,7 +766,7 @@ CMD python app.py""",
             changes   = result["changes"]
             savings   = result["savings"]
 
-            # ── Savings banner ──
+            # Savings banner
             if savings:
                 st.markdown(f"""
 <div style="background:rgba(0,230,180,0.06);border:1px solid rgba(0,230,180,0.25);
@@ -759,7 +777,7 @@ CMD python app.py""",
 </div>
 """, unsafe_allow_html=True)
 
-            # ── Before vs After ──
+            # Before vs After
             st.divider()
             st.markdown("### 📊 Before vs After")
             col1, col2 = st.columns(2)
@@ -774,7 +792,7 @@ CMD python app.py""",
                     ✅ after (optimized)</div>""", unsafe_allow_html=True)
                 st.code(optimized, language="dockerfile")
 
-            # ── What changed ──
+            # What changed
             if changes:
                 st.divider()
                 st.markdown("### 🔍 What Changed & Why")
@@ -788,7 +806,7 @@ CMD python app.py""",
     <span style="font-family:'DM Sans',sans-serif;font-size:13px;color:#8fa3b1;">{change}</span>
 </div>""", unsafe_allow_html=True)
 
-            # ── Diff view ──
+            # Diff view
             st.divider()
             with st.expander("🔎 Line-by-line diff"):
                 diff = diff_dockerfiles(original_dockerfile.strip(), optimized)
@@ -802,7 +820,7 @@ CMD python app.py""",
                         diff_html += f'<div class="diff-kept">  {item["line"]}</div>'
                 st.markdown(f'<div style="background:#060910;border-radius:6px;padding:12px;">{diff_html}</div>', unsafe_allow_html=True)
 
-            # ── Validation of optimized ──
+            # Validation of optimized
             st.divider()
             st.markdown("### 🛡️ Optimized Dockerfile Quality")
             val = validate_dockerfile(optimized)
@@ -821,7 +839,6 @@ CMD python app.py""",
             if val["passed"] and not val["warnings"]:
                 st.success("✅ Optimized Dockerfile is production ready!")
 
-            # ── Download ──
             st.markdown("<br>", unsafe_allow_html=True)
             st.download_button(
                 label="⬇️ Download Optimized Dockerfile",
