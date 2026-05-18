@@ -335,7 +335,6 @@ st.markdown("""
 
 st.divider()
 
-# ── Shared data ───────────────────────────────────────────
 langs = [
     ("🐍", "Python",  "FastAPI · Flask · Django"),
     ("🟩", "Node.js", "Express · Next.js · React"),
@@ -344,12 +343,13 @@ langs = [
     ("🦀", "Rust",    "Cargo"),
 ]
 
-# ── Session state init ────────────────────────────────────
+# ── Session state ─────────────────────────────────────────
 if "chat_history"       not in st.session_state: st.session_state.chat_history       = []
 if "current_dockerfile" not in st.session_state: st.session_state.current_dockerfile = None
 if "current_model"      not in st.session_state: st.session_state.current_model      = "codellama"
 if "input_counter"      not in st.session_state: st.session_state.input_counter      = 0
 if "cloned_tmp_dir"     not in st.session_state: st.session_state.cloned_tmp_dir     = None
+if "github_url_val"     not in st.session_state: st.session_state.github_url_val     = ""
 
 # ── Sidebar ───────────────────────────────────────────────
 with st.sidebar:
@@ -488,11 +488,9 @@ main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
 ])
 
 # ════════════════════════════════════════════════════════
-# TAB 1 — Generate Dockerfile
+# TAB 1 — Generate
 # ════════════════════════════════════════════════════════
 with main_tab1:
-
-    # ── 3 input modes ──
     input_tab1, input_tab2, input_tab3 = st.tabs([
         "📁 Local Path", "📤 Upload Files", "🐙 GitHub URL"
     ])
@@ -523,7 +521,7 @@ with main_tab1:
             project_path = tmp_dir
             st.success(f"✅ {len(uploaded_files)} file(s) uploaded")
 
-    # ── GitHub URL (NEW) ──
+    # ── GitHub URL ──
     with input_tab3:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("""
@@ -536,60 +534,74 @@ with main_tab1:
 </div>
 """, unsafe_allow_html=True)
 
-        github_url = st.text_input(
+        # Show current URL value from session state
+        current_gh_url = st.session_state.github_url_val
+
+        typed_url = st.text_input(
             "github_url",
+            value=current_gh_url,
             placeholder="https://github.com/username/repo-name",
             label_visibility="collapsed",
             key="github_url_input"
         )
 
-        # Example repos
+        # Update session state when user types
+        if typed_url != current_gh_url:
+            st.session_state.github_url_val = typed_url
+
+        # Example repo buttons
         st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
             letter-spacing:0.12em;text-transform:uppercase;color:#2e4050;margin:8px 0 6px;">
             example repos to try</div>""", unsafe_allow_html=True)
 
         example_cols = st.columns(3)
         examples = [
-            ("Flask app",   "https://github.com/pallets/flask"),
-            ("FastAPI app", "https://github.com/tiangolo/fastapi"),
-            ("Express app", "https://github.com/expressjs/express"),
+            ("Flask App",   "https://github.com/pallets/flask"),
+            ("FastAPI App", "https://github.com/tiangolo/fastapi"),
+            ("Express App", "https://github.com/expressjs/express"),
         ]
         for idx, (label, url) in enumerate(examples):
             with example_cols[idx]:
                 if st.button(label, key=f"example_{idx}", use_container_width=True):
-                    st.session_state["github_url_val"] = url
+                    st.session_state.github_url_val = url
                     st.rerun()
 
-        # If example was clicked, show it
-        if "github_url_val" in st.session_state and st.session_state["github_url_val"]:
-            github_url = st.session_state["github_url_val"]
-            st.info(f"Selected: `{github_url}`")
+        # Show selected URL
+        final_url = st.session_state.github_url_val.strip()
+        if final_url:
+            st.markdown(f"""
+<div style="background:rgba(0,230,180,0.05);border:1px solid rgba(0,230,180,0.2);
+    border-radius:4px;padding:8px 12px;margin:8px 0;
+    font-family:'IBM Plex Mono',monospace;font-size:12px;color:#00e6b4;">
+    🔗 {final_url}
+</div>""", unsafe_allow_html=True)
 
         clone_btn = st.button("🔗 Clone & Analyze", use_container_width=True, key="clone_btn")
 
-        if clone_btn and github_url.strip():
-            repo_info = get_repo_info(github_url)
-            with st.spinner(f"🐙 Cloning {repo_info['owner']}/{repo_info['repo']}... (may take 30 seconds)"):
-                tmp_dir, error = clone_github_repo(github_url.strip())
-
-            if error:
-                st.error(f"❌ Clone failed: {error}")
-                st.caption("Make sure the repo is public and the URL is correct.")
+        if clone_btn:
+            if not final_url:
+                st.warning("⚠️ Please enter or select a GitHub URL first.")
             else:
-                # cleanup previous clone
-                if st.session_state.cloned_tmp_dir:
-                    cleanup_repo(st.session_state.cloned_tmp_dir)
-                st.session_state.cloned_tmp_dir = tmp_dir
-                project_path = tmp_dir
-                st.success(f"✅ Cloned `{repo_info['owner']}/{repo_info['repo']}` successfully!")
-                st.caption(f"Temp folder: `{tmp_dir}`")
+                repo_info = get_repo_info(final_url)
+                with st.spinner(f"🐙 Cloning {repo_info['owner']}/{repo_info['repo']}... (may take 30 seconds)"):
+                    tmp_dir, error = clone_github_repo(final_url)
 
-        # Use previously cloned repo
+                if error:
+                    st.error(f"❌ Clone failed: {error}")
+                    st.caption("Make sure the repo is public and the URL is correct.")
+                else:
+                    if st.session_state.cloned_tmp_dir:
+                        cleanup_repo(st.session_state.cloned_tmp_dir)
+                    st.session_state.cloned_tmp_dir = tmp_dir
+                    project_path = tmp_dir
+                    st.success(f"✅ Cloned `{repo_info['owner']}/{repo_info['repo']}` successfully!")
+                    st.caption("Now click 🚀 Generate Dockerfile below!")
+
+        # Reuse previously cloned repo
         if not project_path and st.session_state.cloned_tmp_dir:
             if Path(st.session_state.cloned_tmp_dir).exists():
                 project_path = st.session_state.cloned_tmp_dir
-                repo_name = Path(st.session_state.cloned_tmp_dir).name
-                st.info(f"📂 Using previously cloned repo")
+                st.info("📂 Using previously cloned repo — click Generate below!")
 
     # ── Generate button ──
     st.markdown("<br>", unsafe_allow_html=True)
@@ -676,7 +688,7 @@ with main_tab1:
             with st.expander("🔎 See prompt sent to LLM"):
                 st.code(prompt)
 
-    # ── AI CHAT — always visible once dockerfile generated ──
+    # ── AI CHAT ──
     if st.session_state.current_dockerfile:
         dockerfile_for_chat = st.session_state.current_dockerfile
         model_for_chat      = st.session_state.current_model
@@ -756,7 +768,7 @@ with main_tab1:
             st.rerun()
 
 # ════════════════════════════════════════════════════════
-# TAB 2 — Dockerfile Optimizer
+# TAB 2 — Optimizer
 # ════════════════════════════════════════════════════════
 with main_tab2:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -776,11 +788,7 @@ with main_tab2:
 
     original_dockerfile = st.text_area(
         "dockerfile_input",
-        placeholder="""FROM python:3.9
-RUN apt-get install vim
-RUN pip install flask
-COPY . .
-CMD python app.py""",
+        placeholder="""FROM python:3.9\nRUN apt-get install vim\nRUN pip install flask\nCOPY . .\nCMD python app.py""",
         height=220,
         label_visibility="collapsed",
         key="optimizer_input"
@@ -795,10 +803,10 @@ CMD python app.py""",
     </div>""", unsafe_allow_html=True)
 
     c1, c2, c3, c4 = st.columns(4)
-    with c1: goal_size   = st.checkbox("📦 Smaller size",   value=True)
-    with c2: goal_secure = st.checkbox("🔒 More secure",    value=True)
-    with c3: goal_cache  = st.checkbox("⚡ Better caching", value=True)
-    with c4: goal_layers = st.checkbox("📋 Fewer layers",   value=True)
+    with c1: st.checkbox("📦 Smaller size",   value=True)
+    with c2: st.checkbox("🔒 More secure",    value=True)
+    with c3: st.checkbox("⚡ Better caching", value=True)
+    with c4: st.checkbox("📋 Fewer layers",   value=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -835,8 +843,7 @@ CMD python app.py""",
     <p style="margin:0;font-size:15px;color:#00e6b4;font-family:'IBM Plex Mono',monospace;font-weight:600;">
         💰 {savings}
     </p>
-</div>
-""", unsafe_allow_html=True)
+</div>""", unsafe_allow_html=True)
 
             st.divider()
             st.markdown("### 📊 Before vs After")
@@ -860,8 +867,7 @@ CMD python app.py""",
 <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 12px;
     background:#111620;border:1px solid rgba(0,230,180,0.08);
     border-left:3px solid #00e6b4;border-radius:0 6px 6px 0;margin-bottom:6px;">
-    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;
-        color:#00e6b4;flex-shrink:0;margin-top:2px;">#{i+1}</span>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#00e6b4;flex-shrink:0;margin-top:2px;">#{i+1}</span>
     <span style="font-family:'DM Sans',sans-serif;font-size:13px;color:#8fa3b1;">{change}</span>
 </div>""", unsafe_allow_html=True)
 
@@ -897,16 +903,10 @@ CMD python app.py""",
                 st.success("✅ Optimized Dockerfile is production ready!")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            st.download_button(
-                label="⬇️ Download Optimized Dockerfile",
-                data=optimized,
-                file_name="Dockerfile.optimized",
-                mime="text/plain",
-                use_container_width=True
-            )
+            st.download_button("⬇️ Download Optimized Dockerfile", data=optimized, file_name="Dockerfile.optimized", mime="text/plain", use_container_width=True)
 
 # ════════════════════════════════════════════════════════
-# TAB 3 — Docker Compose Generator
+# TAB 3 — Compose
 # ════════════════════════════════════════════════════════
 with main_tab3:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -917,8 +917,7 @@ with main_tab3:
             🐙 <strong style="color:#00e6b4;">docker compose</strong> — generate a full
             docker-compose.yml with app, database, redis, and nginx — all wired together.
         </p>
-    </div>
-    """, unsafe_allow_html=True)
+    </div>""", unsafe_allow_html=True)
 
     comp_tab1, comp_tab2 = st.tabs(["📁 Local Path", "📤 Upload Files"])
     compose_path = None
@@ -953,7 +952,6 @@ with main_tab3:
     with col1: include_db    = st.checkbox("🗄️ Database", value=True,  help="PostgreSQL or MongoDB")
     with col2: include_redis = st.checkbox("⚡ Redis",    value=False, help="Cache / message queue")
     with col3: include_nginx = st.checkbox("🌐 Nginx",    value=False, help="Reverse proxy / SSL")
-
     options = {"include_db": include_db, "include_redis": include_redis, "include_nginx": include_nginx}
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -984,14 +982,13 @@ with main_tab3:
 
             st.divider()
             st.markdown("### ✅ Generated docker-compose.yml")
-
             badges = ['<span style="background:rgba(0,230,180,0.1);border:1px solid rgba(0,230,180,0.3);border-radius:3px;padding:2px 8px;font-size:11px;color:#00e6b4;font-family:\'IBM Plex Mono\',monospace;">🚀 app</span>']
             if include_db:    badges.append('<span style="background:rgba(60,140,255,0.1);border:1px solid rgba(60,140,255,0.3);border-radius:3px;padding:2px 8px;font-size:11px;color:#3c8cff;font-family:\'IBM Plex Mono\',monospace;">🗄️ database</span>')
             if include_redis: badges.append('<span style="background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:3px;padding:2px 8px;font-size:11px;color:#ff5050;font-family:\'IBM Plex Mono\',monospace;">⚡ redis</span>')
             if include_nginx: badges.append('<span style="background:rgba(255,185,0,0.1);border:1px solid rgba(255,185,0,0.3);border-radius:3px;padding:2px 8px;font-size:11px;color:#ffb900;font-family:\'IBM Plex Mono\',monospace;">🌐 nginx</span>')
             st.markdown('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem;">' + " ".join(badges) + "</div>", unsafe_allow_html=True)
-
             st.code(compose_content, language="yaml")
+
             c1, c2 = st.columns(2)
             with c1:
                 st.download_button("⬇️ Download docker-compose.yml", data=compose_content, file_name="docker-compose.yml", mime="text/plain", use_container_width=True)
@@ -1002,11 +999,11 @@ with main_tab3:
 
             with st.expander("📖 What does each service do?"):
                 explanations = {
-                    "app":   ("🚀", "app",   "Your main application — built from your Dockerfile."),
-                    "db":    ("🗄️", "db",    "PostgreSQL database — stores your app's persistent data."),
-                    "mongo": ("🗄️", "mongo", "MongoDB — stores your app's data as documents."),
-                    "redis": ("⚡", "redis", "Redis — fast in-memory cache for sessions and queues."),
-                    "nginx": ("🌐", "nginx", "Nginx — reverse proxy that handles incoming web traffic."),
+                    "app":   ("🚀","app",  "Your main application — built from your Dockerfile."),
+                    "db":    ("🗄️","db",   "PostgreSQL database — stores your app's persistent data."),
+                    "mongo": ("🗄️","mongo","MongoDB — stores your app's data as documents."),
+                    "redis": ("⚡","redis","Redis — fast in-memory cache for sessions and queues."),
+                    "nginx": ("🌐","nginx","Nginx — reverse proxy that handles incoming web traffic."),
                 }
                 for key, (icon, name, desc) in explanations.items():
                     if key in compose_content:
@@ -1040,8 +1037,7 @@ with main_tab4:
             ⚡ <strong style="color:#00e6b4;">benchmark</strong> — test multiple models on the same project
             and compare quality scores and speed side by side.
         </p>
-    </div>
-    """, unsafe_allow_html=True)
+    </div>""", unsafe_allow_html=True)
 
     bench_tab1, bench_tab2 = st.tabs(["📁 Local Path", "📤 Upload Files"])
     bench_path = None
@@ -1100,8 +1096,7 @@ with main_tab4:
     <p style="margin:0;font-size:14px;color:#00e6b4;font-family:'IBM Plex Mono',monospace;letter-spacing:0.03em;">
         🏆 <strong>best:</strong> {winner['model']} — score: {winner['score']}/100 in {winner['time']}s
     </p>
-</div>
-""", unsafe_allow_html=True)
+</div>""", unsafe_allow_html=True)
 
             for i, r in enumerate(results):
                 medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"#{i+1}"
