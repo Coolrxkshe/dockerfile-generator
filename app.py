@@ -13,6 +13,7 @@ from validator import validate_dockerfile
 from models import get_installed_models, is_model_available, benchmark_models
 from compose import generate_compose, save_compose
 from optimizer import optimize_dockerfile, diff_dockerfiles
+from github_reader import clone_github_repo, get_repo_info, cleanup_repo
 
 # ── Page config ───────────────────────────────────────────
 st.set_page_config(
@@ -321,7 +322,7 @@ st.markdown("""
     <div style="display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:11px;
         letter-spacing:0.15em;color:#00e6b4;border:1px solid rgba(0,230,180,0.3);
         padding:4px 14px;border-radius:2px;margin-bottom:1.2rem;text-transform:uppercase;
-        animation:pulse-glow 3s ease-in-out infinite;">v2.0 · local · private</div>
+        animation:pulse-glow 3s ease-in-out infinite;">v3.0 · local · private</div>
     <h1 style="font-family:'DM Sans',sans-serif;font-size:2.6rem;font-weight:600;
         color:#ddeee8;margin:0 0 0.4rem;letter-spacing:-0.03em;animation:flicker 8s infinite;">
         Dockerfile <span style="color:#00e6b4;">Generator</span>
@@ -347,8 +348,8 @@ langs = [
 if "chat_history"       not in st.session_state: st.session_state.chat_history       = []
 if "current_dockerfile" not in st.session_state: st.session_state.current_dockerfile = None
 if "current_model"      not in st.session_state: st.session_state.current_model      = "codellama"
-if "chat_input_value"   not in st.session_state: st.session_state.chat_input_value   = ""
 if "input_counter"      not in st.session_state: st.session_state.input_counter      = 0
+if "cloned_tmp_dir"     not in st.session_state: st.session_state.cloned_tmp_dir     = None
 
 # ── Sidebar ───────────────────────────────────────────────
 with st.sidebar:
@@ -409,7 +410,7 @@ with st.sidebar:
   <span class="sb-brand-icon">🐳</span>
   <div>
     <div class="sb-brand-title">Dockerfile Gen</div>
-    <div class="sb-brand-sub">v2.0 · powered by ollama</div>
+    <div class="sb-brand-sub">v3.0 · powered by ollama</div>
   </div>
 </div>
 <div class="sb-status">
@@ -490,9 +491,14 @@ main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
 # TAB 1 — Generate Dockerfile
 # ════════════════════════════════════════════════════════
 with main_tab1:
-    input_tab1, input_tab2 = st.tabs(["📁 Local Path", "📤 Upload Files"])
+
+    # ── 3 input modes ──
+    input_tab1, input_tab2, input_tab3 = st.tabs([
+        "📁 Local Path", "📤 Upload Files", "🐙 GitHub URL"
+    ])
     project_path = None
 
+    # ── Local Path ──
     with input_tab1:
         st.markdown("<br>", unsafe_allow_html=True)
         path_input = st.text_input("path", placeholder=r"C:\Users\you\my-project", label_visibility="collapsed")
@@ -503,6 +509,7 @@ with main_tab1:
             else:
                 st.error("❌ Folder not found. Check the path.")
 
+    # ── Upload Files ──
     with input_tab2:
         st.markdown("<br>", unsafe_allow_html=True)
         st.caption("Upload requirements.txt · package.json · go.mod · pom.xml etc.")
@@ -516,6 +523,75 @@ with main_tab1:
             project_path = tmp_dir
             st.success(f"✅ {len(uploaded_files)} file(s) uploaded")
 
+    # ── GitHub URL (NEW) ──
+    with input_tab3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("""
+<div style="background:rgba(0,230,180,0.04);border:1px solid rgba(0,230,180,0.12);
+    border-radius:4px;padding:0.75rem 1rem;margin-bottom:1rem;">
+    <p style="margin:0;font-size:12px;color:#5ecfb1;font-family:'IBM Plex Mono',monospace;">
+        🐙 Paste any <strong style="color:#00e6b4;">public GitHub repo URL</strong>.
+        We clone it, analyze it, and generate the Dockerfile automatically.
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+        github_url = st.text_input(
+            "github_url",
+            placeholder="https://github.com/username/repo-name",
+            label_visibility="collapsed",
+            key="github_url_input"
+        )
+
+        # Example repos
+        st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
+            letter-spacing:0.12em;text-transform:uppercase;color:#2e4050;margin:8px 0 6px;">
+            example repos to try</div>""", unsafe_allow_html=True)
+
+        example_cols = st.columns(3)
+        examples = [
+            ("Flask app",   "https://github.com/pallets/flask"),
+            ("FastAPI app", "https://github.com/tiangolo/fastapi"),
+            ("Express app", "https://github.com/expressjs/express"),
+        ]
+        for idx, (label, url) in enumerate(examples):
+            with example_cols[idx]:
+                if st.button(label, key=f"example_{idx}", use_container_width=True):
+                    st.session_state["github_url_val"] = url
+                    st.rerun()
+
+        # If example was clicked, show it
+        if "github_url_val" in st.session_state and st.session_state["github_url_val"]:
+            github_url = st.session_state["github_url_val"]
+            st.info(f"Selected: `{github_url}`")
+
+        clone_btn = st.button("🔗 Clone & Analyze", use_container_width=True, key="clone_btn")
+
+        if clone_btn and github_url.strip():
+            repo_info = get_repo_info(github_url)
+            with st.spinner(f"🐙 Cloning {repo_info['owner']}/{repo_info['repo']}... (may take 30 seconds)"):
+                tmp_dir, error = clone_github_repo(github_url.strip())
+
+            if error:
+                st.error(f"❌ Clone failed: {error}")
+                st.caption("Make sure the repo is public and the URL is correct.")
+            else:
+                # cleanup previous clone
+                if st.session_state.cloned_tmp_dir:
+                    cleanup_repo(st.session_state.cloned_tmp_dir)
+                st.session_state.cloned_tmp_dir = tmp_dir
+                project_path = tmp_dir
+                st.success(f"✅ Cloned `{repo_info['owner']}/{repo_info['repo']}` successfully!")
+                st.caption(f"Temp folder: `{tmp_dir}`")
+
+        # Use previously cloned repo
+        if not project_path and st.session_state.cloned_tmp_dir:
+            if Path(st.session_state.cloned_tmp_dir).exists():
+                project_path = st.session_state.cloned_tmp_dir
+                repo_name = Path(st.session_state.cloned_tmp_dir).name
+                st.info(f"📂 Using previously cloned repo")
+
+    # ── Generate button ──
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -523,7 +599,7 @@ with main_tab1:
 
     if generate_btn:
         if not project_path:
-            st.warning("⚠️ Please provide a project path or upload files first.")
+            st.warning("⚠️ Please provide a project path, upload files, or clone a GitHub repo first.")
         elif not model or not model.strip():
             st.error("❌ No model selected.")
         else:
@@ -539,7 +615,7 @@ with main_tab1:
             c3.metric("Version",   info["version"])
 
             if info["language"] == "unknown":
-                st.error("❌ Could not detect language. Upload a dependency file.")
+                st.error("❌ Could not detect language. Try uploading a dependency file instead.")
                 st.stop()
 
             with st.spinner("📝 Building prompt..."):
@@ -565,7 +641,7 @@ with main_tab1:
             st.session_state.current_dockerfile = dockerfile
             st.session_state.current_model      = model
             st.session_state.chat_history       = []
-            st.session_state.chat_input_value   = ""
+            st.session_state.input_counter      += 1
 
             with st.spinner("🛡️ Validating..."):
                 result = validate_dockerfile(dockerfile)
@@ -600,7 +676,7 @@ with main_tab1:
             with st.expander("🔎 See prompt sent to LLM"):
                 st.code(prompt)
 
-    # ── AI CHAT — always visible once dockerfile is generated ──
+    # ── AI CHAT — always visible once dockerfile generated ──
     if st.session_state.current_dockerfile:
         dockerfile_for_chat = st.session_state.current_dockerfile
         model_for_chat      = st.session_state.current_model
@@ -617,7 +693,6 @@ with main_tab1:
 </div>
 """, unsafe_allow_html=True)
 
-        # Quick questions
         st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
             letter-spacing:0.15em;text-transform:uppercase;color:#2e4050;margin-bottom:8px;">
             quick questions</div>""", unsafe_allow_html=True)
@@ -638,7 +713,6 @@ with main_tab1:
                     st.session_state.chat_history.append({"role": "assistant", "content": answer})
                     st.rerun()
 
-        # Chat history
         if st.session_state.chat_history:
             st.markdown("<br>", unsafe_allow_html=True)
             for msg in st.session_state.chat_history:
@@ -646,16 +720,12 @@ with main_tab1:
                     st.markdown(f'<div class="chat-user"><div class="chat-user-bubble">{msg["content"]}</div></div>', unsafe_allow_html=True)
                 else:
                     st.markdown(f'<div class="chat-ai"><div class="chat-ai-bubble">{msg["content"]}</div></div>', unsafe_allow_html=True)
-
             if st.button("🗑️ Clear chat", key="clear_chat"):
                 st.session_state.chat_history = []
                 st.rerun()
 
-        # ── Chat input with auto-clear ──
         st.markdown("<br>", unsafe_allow_html=True)
-
-        # Use counter in key to force Streamlit to re-render = clears the box
-        input_key = f"chat_input_{st.session_state.input_counter}"
+        input_key  = f"chat_input_{st.session_state.input_counter}"
         user_input = st.text_input(
             "chat_input",
             placeholder="Ask anything... e.g. How do I add a health check?",
@@ -667,18 +737,13 @@ with main_tab1:
         with col2:
             send_btn = st.button("Send ➤", use_container_width=True, key="send_chat")
         with col3:
-            clear_input_btn = st.button("✕ Clear", use_container_width=True, key="clear_input")
+            if st.button("✕ Clear", use_container_width=True, key="clear_input"):
+                st.session_state.input_counter += 1
+                st.rerun()
 
-        # Clear input button
-        if clear_input_btn:
-            st.session_state.input_counter += 1
-            st.rerun()
-
-        # Send message
         if send_btn and user_input.strip():
             msg = user_input.strip()
             st.session_state.chat_history.append({"role": "user", "content": msg})
-            # Increment counter to clear input box on rerun
             st.session_state.input_counter += 1
             with st.spinner("🤖 Thinking..."):
                 answer = chat_with_dockerfile(
@@ -748,10 +813,7 @@ CMD python app.py""",
         else:
             with st.spinner(f"🤖 Asking {model} to optimize... (10–30 seconds)"):
                 try:
-                    result = optimize_dockerfile(
-                        dockerfile=original_dockerfile.strip(),
-                        model=model.strip()
-                    )
+                    result = optimize_dockerfile(dockerfile=original_dockerfile.strip(), model=model.strip())
                 except Exception as e:
                     st.error(f"❌ Ollama error: {e}")
                     st.stop()
@@ -766,7 +828,6 @@ CMD python app.py""",
             changes   = result["changes"]
             savings   = result["savings"]
 
-            # Savings banner
             if savings:
                 st.markdown(f"""
 <div style="background:rgba(0,230,180,0.06);border:1px solid rgba(0,230,180,0.25);
@@ -777,7 +838,6 @@ CMD python app.py""",
 </div>
 """, unsafe_allow_html=True)
 
-            # Before vs After
             st.divider()
             st.markdown("### 📊 Before vs After")
             col1, col2 = st.columns(2)
@@ -792,7 +852,6 @@ CMD python app.py""",
                     ✅ after (optimized)</div>""", unsafe_allow_html=True)
                 st.code(optimized, language="dockerfile")
 
-            # What changed
             if changes:
                 st.divider()
                 st.markdown("### 🔍 What Changed & Why")
@@ -806,7 +865,6 @@ CMD python app.py""",
     <span style="font-family:'DM Sans',sans-serif;font-size:13px;color:#8fa3b1;">{change}</span>
 </div>""", unsafe_allow_html=True)
 
-            # Diff view
             st.divider()
             with st.expander("🔎 Line-by-line diff"):
                 diff = diff_dockerfiles(original_dockerfile.strip(), optimized)
@@ -820,7 +878,6 @@ CMD python app.py""",
                         diff_html += f'<div class="diff-kept">  {item["line"]}</div>'
                 st.markdown(f'<div style="background:#060910;border-radius:6px;padding:12px;">{diff_html}</div>', unsafe_allow_html=True)
 
-            # Validation of optimized
             st.divider()
             st.markdown("### 🛡️ Optimized Dockerfile Quality")
             val = validate_dockerfile(optimized)
