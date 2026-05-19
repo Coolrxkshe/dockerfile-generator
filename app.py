@@ -14,6 +14,7 @@ from models import get_installed_models, is_model_available, benchmark_models
 from compose import generate_compose, save_compose
 from optimizer import optimize_dockerfile, diff_dockerfiles
 from github_reader import clone_github_repo, get_repo_info, cleanup_repo
+from tester import test_dockerfile, is_docker_running
 
 # ── Page config ───────────────────────────────────────────
 st.set_page_config(
@@ -307,6 +308,17 @@ h3 { font-size: 1.1rem !important; color: #cce8e0 !important; border-bottom: 1px
     font-family: 'IBM Plex Mono', monospace;
     font-size: 12px; color: #4a6070; margin: 1px 0;
 }
+
+.log-line {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: #4a6070;
+    padding: 1px 0;
+    line-height: 1.6;
+}
+.log-line.success { color: #00e6b4; }
+.log-line.error   { color: #ff5050; }
+.log-line.step    { color: #5ecfb1; font-weight: 600; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -322,7 +334,7 @@ st.markdown("""
     <div style="display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:11px;
         letter-spacing:0.15em;color:#00e6b4;border:1px solid rgba(0,230,180,0.3);
         padding:4px 14px;border-radius:2px;margin-bottom:1.2rem;text-transform:uppercase;
-        animation:pulse-glow 3s ease-in-out infinite;">v3.0 · local · private</div>
+        animation:pulse-glow 3s ease-in-out infinite;">v4.0 · local · private</div>
     <h1 style="font-family:'DM Sans',sans-serif;font-size:2.6rem;font-weight:600;
         color:#ddeee8;margin:0 0 0.4rem;letter-spacing:-0.03em;animation:flicker 8s infinite;">
         Dockerfile <span style="color:#00e6b4;">Generator</span>
@@ -362,8 +374,11 @@ with st.sidebar:
     model_count  = len(installed_names)
     lang_count   = len(langs)
     is_online    = bool(installed)
+    docker_ok    = is_docker_running()
     status_color = "#00e6b4" if is_online else "#ff5050"
     status_text  = "ONLINE" if is_online else "OFFLINE"
+    docker_color = "#00e6b4" if docker_ok else "#ff5050"
+    docker_text  = "RUNNING" if docker_ok else "OFFLINE"
 
     st.markdown(f"""
 <style>
@@ -372,11 +387,11 @@ with st.sidebar:
 .sb-brand-icon {{ font-size:22px;line-height:1; }}
 .sb-brand-title {{ font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:#cce8e0;letter-spacing:0.04em; }}
 .sb-brand-sub {{ font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2e4050;letter-spacing:0.1em;text-transform:uppercase;margin-top:1px; }}
-.sb-status {{ display:flex;align-items:center;gap:7px;background:rgba(0,0,0,0.25);border:1px solid rgba(0,230,180,0.1);border-radius:4px;padding:6px 10px;margin-bottom:1.1rem; }}
-.sb-status-dot {{ width:7px;height:7px;border-radius:50%;background:{status_color};flex-shrink:0;animation:sb-blink 2.2s ease-in-out infinite; }}
-.sb-status-label {{ font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;color:{status_color};text-transform:uppercase; }}
+.sb-status {{ display:flex;align-items:center;gap:7px;background:rgba(0,0,0,0.25);border:1px solid rgba(0,230,180,0.1);border-radius:4px;padding:6px 10px;margin-bottom:6px; }}
+.sb-status-dot {{ width:7px;height:7px;border-radius:50%;flex-shrink:0;animation:sb-blink 2.2s ease-in-out infinite; }}
+.sb-status-label {{ font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase; }}
 .sb-status-right {{ margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2e4050; }}
-.sb-stats {{ display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:1.1rem; }}
+.sb-stats {{ display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:1.1rem;margin-top:6px; }}
 .sb-stat {{ background:#090d13;border:1px solid rgba(0,230,180,0.09);border-top:2px solid rgba(0,230,180,0.3);border-radius:5px;padding:8px 10px;transition:border-top-color 0.2s; }}
 .sb-stat:hover {{ border-top-color:#00e6b4; }}
 .sb-stat-val {{ font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:#00e6b4; }}
@@ -410,13 +425,18 @@ with st.sidebar:
   <span class="sb-brand-icon">🐳</span>
   <div>
     <div class="sb-brand-title">Dockerfile Gen</div>
-    <div class="sb-brand-sub">v3.0 · powered by ollama</div>
+    <div class="sb-brand-sub">v4.0 · powered by ollama</div>
   </div>
 </div>
 <div class="sb-status">
-  <span class="sb-status-dot"></span>
-  <span class="sb-status-label">Ollama {status_text}</span>
-  <span class="sb-status-right">local runtime</span>
+  <span class="sb-status-dot" style="background:{status_color};"></span>
+  <span class="sb-status-label" style="color:{status_color};">Ollama {status_text}</span>
+  <span class="sb-status-right">llm runtime</span>
+</div>
+<div class="sb-status">
+  <span class="sb-status-dot" style="background:{docker_color};"></span>
+  <span class="sb-status-label" style="color:{docker_color};">Docker {docker_text}</span>
+  <span class="sb-status-right">build engine</span>
 </div>
 <div class="sb-stats">
   <div class="sb-stat"><div class="sb-stat-val">{model_count}</div><div class="sb-stat-lbl">Models</div></div>
@@ -478,7 +498,7 @@ with st.sidebar:
   <div class="sb-info-row"><span class="sb-info-key">Mode</span><span class="sb-info-val">100% local</span></div>
   <div class="sb-info-row"><span class="sb-info-key">Privacy</span><span class="sb-info-val">no telemetry</span></div>
   <div class="sb-info-row"><span class="sb-info-key">Backend</span><span class="sb-info-val">Ollama API</span></div>
-  <div class="sb-info-row"><span class="sb-info-key">Output</span><span class="sb-info-val">Dockerfile + Compose</span></div>
+  <div class="sb-info-row"><span class="sb-info-key">Tester</span><span class="sb-info-val">Docker Engine</span></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -496,7 +516,6 @@ with main_tab1:
     ])
     project_path = None
 
-    # ── Local Path ──
     with input_tab1:
         st.markdown("<br>", unsafe_allow_html=True)
         path_input = st.text_input("path", placeholder=r"C:\Users\you\my-project", label_visibility="collapsed")
@@ -507,7 +526,6 @@ with main_tab1:
             else:
                 st.error("❌ Folder not found. Check the path.")
 
-    # ── Upload Files ──
     with input_tab2:
         st.markdown("<br>", unsafe_allow_html=True)
         st.caption("Upload requirements.txt · package.json · go.mod · pom.xml etc.")
@@ -521,7 +539,6 @@ with main_tab1:
             project_path = tmp_dir
             st.success(f"✅ {len(uploaded_files)} file(s) uploaded")
 
-    # ── GitHub URL ──
     with input_tab3:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("""
@@ -534,9 +551,7 @@ with main_tab1:
 </div>
 """, unsafe_allow_html=True)
 
-        # Show current URL value from session state
         current_gh_url = st.session_state.github_url_val
-
         typed_url = st.text_input(
             "github_url",
             value=current_gh_url,
@@ -544,12 +559,9 @@ with main_tab1:
             label_visibility="collapsed",
             key="github_url_input"
         )
-
-        # Update session state when user types
         if typed_url != current_gh_url:
             st.session_state.github_url_val = typed_url
 
-        # Example repo buttons
         st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
             letter-spacing:0.12em;text-transform:uppercase;color:#2e4050;margin:8px 0 6px;">
             example repos to try</div>""", unsafe_allow_html=True)
@@ -566,7 +578,6 @@ with main_tab1:
                     st.session_state.github_url_val = url
                     st.rerun()
 
-        # Show selected URL
         final_url = st.session_state.github_url_val.strip()
         if final_url:
             st.markdown(f"""
@@ -585,19 +596,15 @@ with main_tab1:
                 repo_info = get_repo_info(final_url)
                 with st.spinner(f"🐙 Cloning {repo_info['owner']}/{repo_info['repo']}... (may take 30 seconds)"):
                     tmp_dir, error = clone_github_repo(final_url)
-
                 if error:
                     st.error(f"❌ Clone failed: {error}")
-                    st.caption("Make sure the repo is public and the URL is correct.")
                 else:
                     if st.session_state.cloned_tmp_dir:
                         cleanup_repo(st.session_state.cloned_tmp_dir)
                     st.session_state.cloned_tmp_dir = tmp_dir
                     project_path = tmp_dir
-                    st.success(f"✅ Cloned `{repo_info['owner']}/{repo_info['repo']}` successfully!")
-                    st.caption("Now click 🚀 Generate Dockerfile below!")
+                    st.success(f"✅ Cloned `{repo_info['owner']}/{repo_info['repo']}` — click Generate below!")
 
-        # Reuse previously cloned repo
         if not project_path and st.session_state.cloned_tmp_dir:
             if Path(st.session_state.cloned_tmp_dir).exists():
                 project_path = st.session_state.cloned_tmp_dir
@@ -627,7 +634,7 @@ with main_tab1:
             c3.metric("Version",   info["version"])
 
             if info["language"] == "unknown":
-                st.error("❌ Could not detect language. Try uploading a dependency file instead.")
+                st.error("❌ Could not detect language.")
                 st.stop()
 
             with st.spinner("📝 Building prompt..."):
@@ -678,15 +685,99 @@ with main_tab1:
             st.divider()
             st.markdown("### ✅ Generated Dockerfile")
             st.code(dockerfile, language="dockerfile")
-            c1, c2 = st.columns(2)
+
+            c1, c2, c3 = st.columns(3)
             with c1:
-                st.download_button("⬇️ Download Dockerfile", data=dockerfile, file_name="Dockerfile", mime="text/plain", use_container_width=True)
+                st.download_button("⬇️ Download", data=dockerfile, file_name="Dockerfile", mime="text/plain", use_container_width=True)
             with c2:
                 if st.button("💾 Save to folder", use_container_width=True):
                     save_dockerfile(dockerfile, project_path)
                     st.success("✅ Saved!")
+            with c3:
+                test_btn = st.button("🧪 Test Build", use_container_width=True, key="test_build_btn")
+
             with st.expander("🔎 See prompt sent to LLM"):
                 st.code(prompt)
+
+            # ── Dockerfile Tester ──
+            if test_btn:
+                if not docker_ok:
+                    st.error("❌ Docker is not running. Please start Docker Desktop first.")
+                else:
+                    st.divider()
+                    st.markdown("### 🧪 Build Test")
+                    with st.spinner("🐳 Building Docker image... (this may take 1-3 minutes)"):
+                        test_result = test_dockerfile(dockerfile)
+
+                    if test_result["success"]:
+                        st.markdown(f"""
+<div style="background:rgba(0,230,180,0.06);border:1px solid rgba(0,230,180,0.3);
+    border-left:4px solid #00e6b4;border-radius:6px;padding:1rem 1.25rem;">
+    <p style="margin:0 0 4px;font-size:15px;color:#00e6b4;font-family:'IBM Plex Mono',monospace;font-weight:600;">
+        ✅ Build Successful!
+    </p>
+    <p style="margin:0;font-size:12px;color:#5ecfb1;font-family:'IBM Plex Mono',monospace;">
+        Image size: <strong>{test_result['image_size']}</strong>
+        &nbsp;·&nbsp;
+        Build time: <strong>{test_result['build_time']}</strong>
+    </p>
+</div>""", unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"""
+<div style="background:rgba(180,30,30,0.1);border:1px solid rgba(255,80,80,0.3);
+    border-left:4px solid #ff5050;border-radius:6px;padding:1rem 1.25rem;">
+    <p style="margin:0 0 4px;font-size:15px;color:#ff5050;font-family:'IBM Plex Mono',monospace;font-weight:600;">
+        ❌ Build Failed
+    </p>
+    <p style="margin:0;font-size:12px;color:#8fa3b1;font-family:'DM Sans',sans-serif;">
+        {test_result['error']}
+    </p>
+</div>""", unsafe_allow_html=True)
+
+                        # AI fix suggestion
+                        if test_result["error"]:
+                            with st.spinner("🤖 Asking AI to suggest a fix..."):
+                                fix_prompt = f"""This Dockerfile failed to build with this error:
+
+{test_result['error']}
+
+Dockerfile:
+```dockerfile
+{dockerfile}
+```
+
+In 2-3 sentences, explain what is wrong and how to fix it. Be specific."""
+                                try:
+                                    fix_response = ollama_lib.chat(
+                                        model=model.strip(),
+                                        messages=[{"role": "user", "content": fix_prompt}]
+                                    )
+                                    fix = fix_response["message"]["content"]
+                                    st.markdown(f"""
+<div style="background:rgba(0,80,180,0.1);border:1px solid rgba(60,140,255,0.25);
+    border-left:3px solid #3c8cff;border-radius:4px;padding:1rem 1.25rem;margin-top:1rem;">
+    <p style="margin:0 0 4px;font-size:11px;font-family:'IBM Plex Mono',monospace;
+        color:#3c8cff;text-transform:uppercase;letter-spacing:0.1em;">🤖 AI Suggested Fix</p>
+    <p style="margin:0;font-size:13px;color:#8fa3b1;font-family:'DM Sans',sans-serif;line-height:1.6;">
+        {fix}
+    </p>
+</div>""", unsafe_allow_html=True)
+                                except Exception:
+                                    pass
+
+                    # Build logs
+                    if test_result.get("logs"):
+                        with st.expander("📋 View full build logs"):
+                            logs_html = ""
+                            for line in test_result["logs"]:
+                                cls = "step" if line.startswith("Step") else \
+                                      "error" if "error" in line.lower() else \
+                                      "success" if "successfully" in line.lower() else ""
+                                logs_html += f'<div class="log-line {cls}">{line}</div>'
+                            st.markdown(
+                                f'<div style="background:#060910;border-radius:6px;padding:12px;max-height:300px;overflow-y:auto;">{logs_html}</div>',
+                                unsafe_allow_html=True
+                            )
 
     # ── AI CHAT ──
     if st.session_state.current_dockerfile:
@@ -744,7 +835,6 @@ with main_tab1:
             label_visibility="collapsed",
             key=input_key
         )
-
         col1, col2, col3 = st.columns([3, 1, 1])
         with col2:
             send_btn = st.button("Send ➤", use_container_width=True, key="send_chat")
@@ -779,8 +869,7 @@ with main_tab2:
             🔧 <strong style="color:#00e6b4;">optimizer</strong> — paste any existing Dockerfile.
             AI rewrites it to be smaller, faster, and more secure. Shows before vs after.
         </p>
-    </div>
-    """, unsafe_allow_html=True)
+    </div>""", unsafe_allow_html=True)
 
     st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;
         letter-spacing:0.15em;text-transform:uppercase;color:#2e4050;margin-bottom:8px;">
@@ -788,7 +877,7 @@ with main_tab2:
 
     original_dockerfile = st.text_area(
         "dockerfile_input",
-        placeholder="""FROM python:3.9\nRUN apt-get install vim\nRUN pip install flask\nCOPY . .\nCMD python app.py""",
+        placeholder="FROM python:3.9\nRUN apt-get install vim\nRUN pip install flask\nCOPY . .\nCMD python app.py",
         height=220,
         label_visibility="collapsed",
         key="optimizer_input"
@@ -817,17 +906,17 @@ with main_tab2:
         if not original_dockerfile.strip():
             st.warning("⚠️ Please paste a Dockerfile first.")
         elif "FROM" not in original_dockerfile:
-            st.error("❌ This doesn't look like a valid Dockerfile. It must contain a FROM instruction.")
+            st.error("❌ Must contain a FROM instruction.")
         else:
-            with st.spinner(f"🤖 Asking {model} to optimize... (10–30 seconds)"):
+            with st.spinner(f"🤖 Optimizing... (10–30 seconds)"):
                 try:
                     result = optimize_dockerfile(dockerfile=original_dockerfile.strip(), model=model.strip())
                 except Exception as e:
-                    st.error(f"❌ Ollama error: {e}")
+                    st.error(f"❌ {e}")
                     st.stop()
 
             if not result["success"]:
-                st.error("❌ Could not generate an optimized Dockerfile.")
+                st.error("❌ Could not generate optimized Dockerfile.")
                 with st.expander("See raw response"):
                     st.code(result.get("raw", ""))
                 st.stop()
@@ -851,12 +940,12 @@ with main_tab2:
             with col1:
                 st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;
                     letter-spacing:0.1em;text-transform:uppercase;color:#ff5050;margin-bottom:6px;">
-                    ❌ before (original)</div>""", unsafe_allow_html=True)
+                    ❌ before</div>""", unsafe_allow_html=True)
                 st.code(original_dockerfile.strip(), language="dockerfile")
             with col2:
                 st.markdown("""<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;
                     letter-spacing:0.1em;text-transform:uppercase;color:#00e6b4;margin-bottom:6px;">
-                    ✅ after (optimized)</div>""", unsafe_allow_html=True)
+                    ✅ after</div>""", unsafe_allow_html=True)
                 st.code(optimized, language="dockerfile")
 
             if changes:
@@ -885,22 +974,20 @@ with main_tab2:
                 st.markdown(f'<div style="background:#060910;border-radius:6px;padding:12px;">{diff_html}</div>', unsafe_allow_html=True)
 
             st.divider()
-            st.markdown("### 🛡️ Optimized Dockerfile Quality")
+            st.markdown("### 🛡️ Quality Score")
             val = validate_dockerfile(optimized)
             score = val["score"]
-            score_label = "🟢 Excellent" if score >= 80 else "🟡 Needs improvement" if score >= 50 else "🔴 Poor"
             c1, c2 = st.columns([1, 3])
             with c1:
                 st.metric("Quality Score", f"{score}/100")
             with c2:
                 st.progress(score / 100)
-                st.caption(score_label)
+                st.caption("🟢 Excellent" if score >= 80 else "🟡 Needs improvement" if score >= 50 else "🔴 Poor")
 
             for e in val.get("errors",   []): st.error(  f"❌ **{e['id']}** — {e['message']}")
             for w in val.get("warnings", []): st.warning(f"⚠️ **{w['id']}** — {w['message']}")
-            for i in val.get("infos",    []): st.info(   f"💡 **{i['id']}** — {i['message']}")
             if val["passed"] and not val["warnings"]:
-                st.success("✅ Optimized Dockerfile is production ready!")
+                st.success("✅ Production ready!")
 
             st.markdown("<br>", unsafe_allow_html=True)
             st.download_button("⬇️ Download Optimized Dockerfile", data=optimized, file_name="Dockerfile.optimized", mime="text/plain", use_container_width=True)
@@ -963,7 +1050,7 @@ with main_tab3:
         if not compose_path:
             st.warning("⚠️ Please provide a project path or upload files first.")
         else:
-            with st.spinner("🔍 Analyzing project..."):
+            with st.spinner("🔍 Analyzing..."):
                 info  = detect_project(compose_path)
                 files = read_project_files(compose_path)
 
@@ -977,7 +1064,7 @@ with main_tab3:
                 st.error("❌ Could not detect language.")
                 st.stop()
 
-            with st.spinner("🐙 Generating docker-compose.yml..."):
+            with st.spinner("🐙 Generating..."):
                 compose_content = generate_compose(info, options)
 
             st.divider()
@@ -1000,10 +1087,10 @@ with main_tab3:
             with st.expander("📖 What does each service do?"):
                 explanations = {
                     "app":   ("🚀","app",  "Your main application — built from your Dockerfile."),
-                    "db":    ("🗄️","db",   "PostgreSQL database — stores your app's persistent data."),
+                    "db":    ("🗄️","db",   "PostgreSQL — stores your app's persistent data."),
                     "mongo": ("🗄️","mongo","MongoDB — stores your app's data as documents."),
-                    "redis": ("⚡","redis","Redis — fast in-memory cache for sessions and queues."),
-                    "nginx": ("🌐","nginx","Nginx — reverse proxy that handles incoming web traffic."),
+                    "redis": ("⚡","redis","Redis — fast cache for sessions and queues."),
+                    "nginx": ("🌐","nginx","Nginx — reverse proxy for incoming traffic."),
                 }
                 for key, (icon, name, desc) in explanations.items():
                     if key in compose_content:
@@ -1019,10 +1106,10 @@ with main_tab3:
             with st.expander("▶️ How to run it"):
                 st.markdown("""
 <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#5ecfb1;line-height:2;">
-  <div style="color:#2e4050;"># start all services</div><div style="color:#00e6b4;">docker compose up</div><br>
-  <div style="color:#2e4050;"># start in background</div><div style="color:#00e6b4;">docker compose up -d</div><br>
-  <div style="color:#2e4050;"># stop all services</div><div style="color:#00e6b4;">docker compose down</div><br>
-  <div style="color:#2e4050;"># view logs</div><div style="color:#00e6b4;">docker compose logs -f</div>
+  <div style="color:#2e4050;"># start all</div><div style="color:#00e6b4;">docker compose up</div><br>
+  <div style="color:#2e4050;"># background</div><div style="color:#00e6b4;">docker compose up -d</div><br>
+  <div style="color:#2e4050;"># stop</div><div style="color:#00e6b4;">docker compose down</div><br>
+  <div style="color:#2e4050;"># logs</div><div style="color:#00e6b4;">docker compose logs -f</div>
 </div>""", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════
@@ -1084,7 +1171,7 @@ with main_tab4:
 
             st.info(f"Testing **{len(selected_models)}** model(s) on a **{info['language']}** project...")
 
-            with st.spinner("Running benchmark... this may take a while"):
+            with st.spinner("Running benchmark..."):
                 results = benchmark_models(selected_models, prompt)
 
             st.divider()
